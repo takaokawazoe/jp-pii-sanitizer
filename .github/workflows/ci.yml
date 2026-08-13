@@ -1,0 +1,92 @@
+name: ci
+
+# Builds the whole tree on Linux (proving the platform-independent core + CLI
+# are cross-platform) and runs the conformance suite plus a CLI smoke test.
+# The GUI target is Windows-only and is not built here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      JPPII_REPO: ${{ github.repository }}
+      JPPII_TAG: v0.1.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: apt dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config unzip curl
+
+      - name: rust toolchain (tokenizer / sudachi shims)
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+      - name: fetch third_party (pinned versions)
+        working-directory: cpp/third_party
+        run: |
+          set -euxo pipefail
+          curl -fsSL -O https://github.com/microsoft/onnxruntime/releases/download/v1.27.0/onnxruntime-linux-x64-1.27.0.tgz
+          tar xzf onnxruntime-linux-x64-1.27.0.tgz && mv onnxruntime-linux-x64-1.27.0 onnxruntime
+          curl -fsSL -o json.hpp https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp
+          curl -fsSL -O https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.44/pcre2-10.44.tar.gz
+          tar xzf pcre2-10.44.tar.gz && mv pcre2-10.44 pcre2
+          curl -fsSL -O https://github.com/richgel999/miniz/releases/download/3.0.2/miniz-3.0.2.zip
+          mkdir -p miniz && (cd miniz && unzip -o ../miniz-3.0.2.zip)
+          curl -fsSL -O https://github.com/zeux/pugixml/releases/download/v1.14/pugixml-1.14.tar.gz
+          tar xzf pugixml-1.14.tar.gz && mv pugixml-1.14 pugixml
+          curl -fsSL -o pdfium.tgz "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7947/pdfium-linux-x64.tgz"
+          mkdir pdfium && tar xzf pdfium.tgz -C pdfium
+          git clone --depth 1 https://github.com/aspose-email-foss/Aspose.Email-FOSS-for-CPP aspose-email
+          (cd aspose-email && git apply ../../patches/aspose-any_to_string-binary.patch)
+
+      - name: cache model + dictionary bundle
+        id: models-cache
+        uses: actions/cache@v4
+        with:
+          path: cpp/models
+          key: models-${{ env.JPPII_TAG }}
+
+      - name: fetch model + dictionary bundle (from Release)
+        if: steps.models-cache.outputs.cache-hit != 'true'
+        run: ./cpp/tools/fetch_assets.sh
+
+      - name: build (conformance tests + CLI)
+        working-directory: cpp
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: conformance tests (Python-parity oracles)
+        working-directory: cpp
+        run: |
+          set -euxo pipefail
+          ./build/phase0_tokenize
+          ./build/phase0_parity models/model_fp16.onnx
+          ./build/phase1_sudachi
+          ./build/phase2_regex
+          ./build/phase2_hf
+          ./build/phase2_pipeline
+          ./build/phase3_tokenize
+          ./build/phase4_extract
+          ./build/phase4_msg
+          ./build/phase5_core
+
+      - name: CLI smoke (detect / mask / restore round-trip)
+        working-directory: cpp
+        run: |
+          set -euxo pipefail
+          printf '本日、山田太郎さんが対応しました。\n' > /tmp/p.txt
+          printf '%s\n' '{"type":"PERSON","text":"山田太郎"}' > /tmp/cand.jsonl
+          ./build/jp-pii-sanitizer-cli mask /tmp/p.txt --candidates /tmp/cand.jsonl \
+              --reversible --mapping /tmp/map.jsonl --data models -o /tmp/masked.txt
+          grep -q 'PERSON_1' /tmp/masked.txt
+          ! grep -q '山田太郎' /tmp/masked.txt
+          ./build/jp-pii-sanitizer-cli restore --mapping /tmp/map.jsonl -i /tmp/masked.txt -o /tmp/restored.txt
+          grep -q '山田太郎' /tmp/restored.txt

@@ -52,6 +52,45 @@ sanitizer uses), so the preview and the result always agree.
   launch; choose **More info → Run anyway** (no admin needed), or build it
   yourself.
 
+### Command-line interface (CLI)
+
+Besides the GUI there is a scriptable CLI, `jp-pii-sanitizer-cli`, for batch and
+headless use. Unlike the GUI (Windows/WebView2), the CLI builds and runs on
+Linux/macOS too. It ships in the portable ZIP next to the GUI.
+
+```sh
+# 1. detect candidates for review
+jp-pii-sanitizer-cli detect report.docx notes.pdf -o candidates.jsonl
+
+# 2. edit candidates.jsonl (delete false positives, add misses), then mask
+jp-pii-sanitizer-cli mask report.docx notes.pdf --candidates candidates.jsonl \
+    --reversible --mapping mapping.jsonl -o masked.txt
+
+# 3. after the AI replies, restore real values
+jp-pii-sanitizer-cli restore --mapping mapping.jsonl -i ai_reply.txt -o final.txt
+```
+
+- **The candidate file is the authority.** `mask --candidates f` masks exactly
+  the terms in `f` (plus always-automatic e-mail/phone/postal) and needs no
+  model. Human review is your workflow: edit the JSONL between `detect` and
+  `mask`. With no `--candidates`, `mask` auto-detects and masks everything
+  (opt-out).
+- **Default is irreversible** (`[人名1]`-style, no mapping written). Add
+  `--reversible --mapping map.jsonl` to keep a private mapping for `restore`.
+- **Candidate JSONL** is one object per line —
+  `{"type":"PERSON","text":"田中 太郎"}` (`type` ∈ PERSON/ORGANIZATION/LOCATION).
+- **Data tables (csv/xlsx).** Prose and tables are masked in one invocation so
+  they share one mapping (the same person in a document and a spreadsheet gets
+  the same token). Give columns per file via a `--tables` JSONL —
+  `{"file":"list.csv","header_row":1,"name_cols":["氏名"],"company_cols":["取引先"]}`
+  — or for a single table use flags: `--table --header-row N --sheet NAME
+  --name-cols A,B --company-cols C` (columns by header name or 1-based index).
+  `detect … --tables-out tables.jsonl` writes a starter you can edit. Table
+  output is a count summary only; raw rows never reach the AI.
+- Formats: `.docx .pptx .xlsx .pdf .csv .txt .msg`. Run `--help` for all options.
+  The mapping file is your most sensitive artifact — treat it like a password
+  and delete it when done.
+
 ### Build from source
 
 See [cpp/README.md](cpp/README.md). In short: Linux/WSL (for the conformance
@@ -118,6 +157,40 @@ All sample and test data is synthetic — no real personal information is includ
 - **管理者権限は不要**（`%LOCALAPPDATA%` にのみ書き込み）。
 - **未署名**のため初回に SmartScreen 警告が出ることがあります。［詳細情報］→［実行］で起動
   できます（管理者権限不要）。あるいは自分でビルドしてください。
+
+### コマンドラインインターフェース（CLI）
+
+GUI とは別に、バッチ・ヘッドレス用途向けの CLI `jp-pii-sanitizer-cli` があります。
+GUI（Windows/WebView2）と違い、CLI は Linux/macOS でもビルド・実行できます。
+ポータブル ZIP に GUI と同梱されています。
+
+```sh
+# 1. 候補を検出（レビュー用）
+jp-pii-sanitizer-cli detect report.docx notes.pdf -o candidates.jsonl
+
+# 2. candidates.jsonl を編集（誤検知を削除・漏れを追記）してマスク
+jp-pii-sanitizer-cli mask report.docx notes.pdf --candidates candidates.jsonl \
+    --reversible --mapping mapping.jsonl -o masked.txt
+
+# 3. AI の返答を実名に戻す
+jp-pii-sanitizer-cli restore --mapping mapping.jsonl -i ai_reply.txt -o final.txt
+```
+
+- **候補ファイルが権威。** `mask --candidates f` は `f` の語（＋常時自動のメール／電話／
+  郵便）だけをマスクし、モデルは不要。レビューはあなたのワークフロー＝`detect` と `mask`
+  の間で JSONL を編集します。`--candidates` 無しの `mask` は自動検出して全マスク（opt-out）。
+- **既定は不可逆**（`[人名1]` 形式・対応表を書かない）。`--reversible --mapping map.jsonl`
+  で `restore` 用の対応表を残します。
+- **候補 JSONL** は 1 行 1 オブジェクト —
+  `{"type":"PERSON","text":"田中 太郎"}`（`type` は PERSON／ORGANIZATION／LOCATION）。
+- **データ表（csv／xlsx）。** prose と表を 1 回の呼び出しでマスクするので対応表を共有します
+  （文書と表で同じ人物は同じトークン）。列はファイルごとに `--tables` JSONL で指定 —
+  `{"file":"list.csv","header_row":1,"name_cols":["氏名"],"company_cols":["取引先"]}`
+  — 単一表ならフラグ `--table --header-row N --sheet NAME --name-cols A,B
+  --company-cols C`（列は見出し名 or 1始まり番号）。`detect … --tables-out tables.jsonl`
+  で編集用の雛形を出力できます。表の出力は件数要約のみで、生の行は AI に渡りません。
+- 対応形式: `.docx .pptx .xlsx .pdf .csv .txt .msg`。全オプションは `--help`。
+  対応表ファイルは最も機微な成果物です。パスワードのように扱い、不要になったら削除してください。
 
 ### ソースからのビルド
 

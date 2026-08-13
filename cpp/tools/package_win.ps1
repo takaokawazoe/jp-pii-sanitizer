@@ -2,8 +2,8 @@
 #   展開して jp-pii-sanitizer.exe を叩けば動く自己完結フォルダ（管理者権限不要）。
 #   対象: Windows 11 以降（WebView2 ランタイム標準搭載に依存）。未署名。
 #
-# 前提: cmake --build build --target jp_pii_sanitizer が済んでいること
-#       （build/ に exe・各DLL・index.html が揃う）と、models/ にモデル一式があること。
+# 前提: cmake --build build --target jp_pii_sanitizer jp_pii_sanitizer_cli が済んでいること
+#       （build/ に GUI/CLI の exe・各DLL・index.html が揃う）と、models/ にモデル一式があること。
 # 使い方: powershell -ExecutionPolicy Bypass -File cpp/tools/package_win.ps1
 $ErrorActionPreference = 'Stop'
 $cpp   = Split-Path $PSScriptRoot -Parent           # cpp/
@@ -27,6 +27,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage 'models') | Out-Null
 # --- exe・DLL・UI（build/ から） ---
 $fromBuild = @(
   'jp-pii-sanitizer.exe',
+  'jp-pii-sanitizer-cli.exe',
   'index.html',
   'WebView2Loader.dll',
   'onnxruntime.dll',
@@ -52,12 +53,20 @@ Copy-Item (Join-Path $models 'sudachi') (Join-Path $stage 'models\sudachi') -Rec
 $readme = @"
 PIIサニタイザ（ポータブル版）
 
-■ 使い方
+■ 使い方（GUI）
   1. このフォルダを書き込みできる場所（デスクトップ、ダウンロード等）に展開する
   2. jp-pii-sanitizer.exe をダブルクリック
 
+■ コマンドライン版（バッチ・自動化用）
+  同じフォルダの jp-pii-sanitizer-cli.exe をコマンドプロンプト/PowerShell から実行します。
+    jp-pii-sanitizer-cli.exe detect <files...> -o candidates.jsonl
+    jp-pii-sanitizer-cli.exe mask   <files...> --candidates candidates.jsonl -o masked.txt
+    jp-pii-sanitizer-cli.exe restore --mapping mapping.jsonl -i ai_reply.txt -o final.txt
+  詳細は jp-pii-sanitizer-cli.exe --help、および README のCLI節を参照。
+
 ■ 動作環境
   Windows 11 以降（WebView2 ランタイムが標準搭載のため追加インストール不要）
+  ※ CLI は WebView2 不要。GUI のみ WebView2 を使います。
 
 ■ SmartScreen 警告について
   未署名のため、初回起動時に「Windows によって PC が保護されました」と出ることがあります。
