@@ -29,6 +29,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shellapi.h>  // CommandLineToArgvW（Windows は argv が cp932 なので UTF-16 から作り直す）
 #else
 #include <unistd.h>
 #endif
@@ -67,6 +68,17 @@ std::string basename_of(const std::string& path) {
   return slash == std::string::npos ? path : path.substr(slash + 1);
 }
 
+#ifdef _WIN32
+std::string wide_to_utf8(const wchar_t* w) {
+  if (!w) return {};
+  const int len = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
+  if (len <= 0) return {};
+  std::string out(static_cast<std::size_t>(len - 1), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, w, -1, out.data(), len, nullptr, nullptr);
+  return out;
+}
+#endif
+
 std::string exe_dir() {
 #ifdef _WIN32
   wchar_t buf[MAX_PATH];
@@ -74,10 +86,8 @@ std::string exe_dir() {
   if (n == 0 || n >= MAX_PATH) return ".";
   std::wstring w(buf, n);
   const auto slash = w.find_last_of(L"\\/");
-  std::wstring dir = (slash == std::wstring::npos) ? L"." : w.substr(0, slash);
-  int len = WideCharToMultiByte(CP_UTF8, 0, dir.c_str(), -1, nullptr, 0, nullptr, nullptr);
-  std::string out(len > 0 ? len - 1 : 0, '\0');
-  if (len > 0) WideCharToMultiByte(CP_UTF8, 0, dir.c_str(), -1, out.data(), len, nullptr, nullptr);
+  const std::wstring dir = (slash == std::wstring::npos) ? L"." : w.substr(0, slash);
+  const std::string out = wide_to_utf8(dir.c_str());
   return out.empty() ? "." : out;
 #else
   char buf[4096];
@@ -171,6 +181,133 @@ step5::FileResult ingest(const std::string& path) {
     fr.text = std::string("（抽出に失敗: ") + ex.what() + "）";
   }
   return fr;
+}
+
+// ---------------------------------------------------------------- tables (Phase B)
+// 表マスクは列単位（tokenize_table）。prose と同じ 1 つの Tokenizer に流すので対応表は
+// 共有され、docx の田中と xlsx の田中が同じトークンになる（別呼び出しなら衝突していた）。
+struct TableSpec {
+  std::string sheet;   // xlsx: シート名（空=先頭）
+  int header_row = 0;  // 1始まり・0=自動
+  std::vector<std::string> name_cols, company_cols;  // 見出し名 or 1始まり列番号
+};
+
+bool all_digits(const std::string& s) {
+  return !s.empty() && std::all_of(s.begin(), s.end(),
+                                   [](unsigned char c) { return std::isdigit(c) != 0; });
+}
+
+// 見出し名 or 1始まり列番号 → 見出し名のリスト（tokenize_table は名前で照合する）
+std::vector<std::string> resolve_cols(const std::vector<std::string>& headers,
+                                      const std::vector<std::string>& specs) {
+  std::vector<std::string> out;
+  for (const auto& s : specs) {
+    if (all_digits(s)) {
+      const int idx = std::stoi(s) - 1;
+      if (idx >= 0 && idx < static_cast<int>(headers.size())) out.push_back(headers[idx]);
+    } else {
+      out.push_back(s);
+    }
+  }
+  return out;
+}
+
+extractors::Table build_table(const std::vector<std::vector<std::string>>& rows,
+                              const TableSpec& spec) {
+  if (spec.header_row > 0) {  // 見出し行を明示指定（1始まりのシート行番号）
+    extractors::Table t;
+    const std::size_t hi = static_cast<std::size_t>(spec.header_row - 1);
+    if (hi < rows.size()) {
+      t.headers = rows[hi];
+      for (std::size_t i = hi + 1; i < rows.size(); ++i) {
+        bool any = false;
+        for (const auto& c : rows[i]) if (!c.empty()) { any = true; break; }
+        if (any) t.rows.push_back(rows[i]);  // 全セル空の行は落とす（要約件数を正しく）
+      }
+    }
+    return t;
+  }
+  // 自動: 名前指定の列を wanted に渡して見出し行検出を助ける
+  std::vector<std::string> wanted;
+  for (const auto& s : spec.name_cols) if (!all_digits(s)) wanted.push_back(s);
+  for (const auto& s : spec.company_cols) if (!all_digits(s)) wanted.push_back(s);
+  return extractors::rows_to_table(rows, wanted);
+}
+
+step5::FileResult ingest_table(const std::string& path, const TableSpec& spec) {
+  step5::FileResult fr;
+  fr.source = basename_of(path);
+  fr.has_table = true;
+  const std::string e = ext_of(path);
+  std::vector<std::vector<std::string>> rows;
+  try {
+    if (e == "csv") { fr.kind = "csv-table"; rows = extractors::read_csv_rows(path); }
+    else if (e == "xlsx") { fr.kind = "xlsx-table"; rows = ooxml::read_xlsx_sheet_rows(path, spec.sheet); }
+    else { fr.kind = "skipped"; return fr; }
+  } catch (const std::exception& ex) {
+    fr.kind = "skipped";
+    fr.text = std::string("（表の読み込みに失敗: ") + ex.what() + "）";
+    return fr;
+  }
+  const auto t = build_table(rows, spec);
+  fr.headers = t.headers;
+  fr.rows = t.rows;
+  fr.name_cols = resolve_cols(t.headers, spec.name_cols);
+  fr.company_cols = resolve_cols(t.headers, spec.company_cols);
+  return fr;
+}
+
+std::map<std::string, TableSpec> read_tables_jsonl(const std::string& path) {
+  const std::string body = fileio::read_all(path);
+  if (body.empty() && !file_exists(path))
+    throw std::runtime_error("--tables ファイルが読めません: " + path);
+  std::map<std::string, TableSpec> out;
+  std::istringstream in(body);
+  std::string line;
+  std::size_t ln = 0;
+  while (std::getline(in, line)) {
+    ++ln;
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    std::size_t s = line.find_first_not_of(" \t");
+    if (s == std::string::npos || line[s] == '#') continue;
+    try {
+      const json j = json::parse(line);
+      const std::string file = j.value("file", std::string());
+      if (file.empty()) continue;
+      TableSpec ts;
+      ts.sheet = j.value("sheet", std::string());
+      ts.header_row = j.value("header_row", 0);
+      auto load_cols = [&](const char* key, std::vector<std::string>& dst) {
+        if (!j.contains(key)) return;
+        for (const auto& v : j[key]) {
+          if (v.is_string()) dst.push_back(v.get<std::string>());
+          else if (v.is_number_integer()) dst.push_back(std::to_string(v.get<int>()));
+        }
+      };
+      load_cols("name_cols", ts.name_cols);
+      load_cols("company_cols", ts.company_cols);
+      out[basename_of(file)] = ts;
+    } catch (const std::exception& ex) {
+      throw std::runtime_error("--tables JSONL " + std::to_string(ln) + " 行目を解釈できません: " + ex.what());
+    }
+  }
+  return out;
+}
+
+std::vector<step5::FileResult> ingest_files(const std::vector<std::string>& paths,
+                                            const std::map<std::string, TableSpec>& specs) {
+  std::vector<step5::FileResult> files;
+  for (const auto& p : paths) {
+    const std::string b = basename_of(p);
+    const std::string e = ext_of(p);
+    auto it = specs.find(b);
+    step5::FileResult fr;
+    if (it != specs.end() && (e == "csv" || e == "xlsx")) fr = ingest_table(p, it->second);
+    else fr = ingest(p);
+    if (fr.kind == "skipped") std::fprintf(stderr, "warning: スキップ: %s\n", b.c_str());
+    files.push_back(std::move(fr));
+  }
+  return files;
 }
 
 // ---------------------------------------------------------------- detection
@@ -310,7 +447,24 @@ struct Args {
   std::vector<std::string> files;
   std::string out, candidates, mapping, input, data;
   bool reversible = false;
+  // 表オプション（Phase B）
+  std::string tables;          // --tables tables.jsonl（複数ファイル/シートの列指定）
+  bool table = false;          // --table（単一表の簡易指定・入力の csv/xlsx に適用）
+  int header_row = 0;          // --header-row N（1始まり・0=自動）
+  std::string sheet;           // --sheet NAME（xlsx）
+  std::vector<std::string> name_cols, company_cols;  // --name-cols / --company-cols
 };
+
+std::vector<std::string> split_commas(const std::string& s) {
+  std::vector<std::string> out;
+  std::string cur;
+  for (char c : s) {
+    if (c == ',') { if (!cur.empty()) out.push_back(cur); cur.clear(); }
+    else cur += c;
+  }
+  if (!cur.empty()) out.push_back(cur);
+  return out;
+}
 
 [[noreturn]] void die(const std::string& msg) {
   std::fprintf(stderr, "error: %s\n", msg.c_str());
@@ -333,23 +487,44 @@ Args parse_args(int argc, char** argv) {
     else if (t == "--input" || t == "-i") a.input = need(i);
     else if (t == "--data") a.data = need(i);
     else if (t == "--reversible") a.reversible = true;
+    else if (t == "--tables") a.tables = need(i);
+    else if (t == "--table") a.table = true;
+    else if (t == "--sheet") a.sheet = need(i);
+    else if (t == "--header-row") a.header_row = std::stoi(need(i));
+    else if (t == "--name-cols") a.name_cols = split_commas(need(i));
+    else if (t == "--company-cols") a.company_cols = split_commas(need(i));
     else if (!t.empty() && t[0] == '-') die("不明なオプション: " + t);
     else a.files.push_back(t);
   }
   return a;
 }
 
+// Args から表指定マップを組む（--tables 優先・--table フラグは csv/xlsx 入力に一律適用）
+std::map<std::string, TableSpec> build_table_specs(const Args& a) {
+  std::map<std::string, TableSpec> specs;
+  if (!a.tables.empty()) specs = read_tables_jsonl(a.tables);
+  if (a.table) {
+    TableSpec ts;
+    ts.sheet = a.sheet;
+    ts.header_row = a.header_row;
+    ts.name_cols = a.name_cols;
+    ts.company_cols = a.company_cols;
+    for (const auto& p : a.files) {
+      const std::string e = ext_of(p);
+      if (e == "csv" || e == "xlsx") {
+        const std::string b = basename_of(p);
+        if (!specs.count(b)) specs[b] = ts;  // --tables があればそちらを優先
+      }
+    }
+  }
+  return specs;
+}
+
 // ---------------------------------------------------------------- subcommands
 int cmd_detect(const Args& a) {
   if (a.files.empty()) die("detect: 対象ファイルを指定してください");
   Engine eng(resolve_data_root(a.data));
-  std::vector<step5::FileResult> files;
-  for (const auto& p : a.files) {
-    auto fr = ingest(p);
-    if (fr.kind == "skipped")
-      std::fprintf(stderr, "warning: スキップ: %s\n", basename_of(p).c_str());
-    files.push_back(std::move(fr));
-  }
+  auto files = ingest_files(a.files, build_table_specs(a));
   const auto cands = detect_candidates(eng, files);
   OutSink sink(a.out);
   write_candidates_jsonl(sink.stream(), cands);
@@ -360,20 +535,18 @@ int cmd_detect(const Args& a) {
 int cmd_mask(const Args& a) {
   if (a.files.empty()) die("mask: 対象ファイルを指定してください");
   Engine eng(resolve_data_root(a.data));
-  std::vector<step5::FileResult> files;
-  for (const auto& p : a.files) {
-    auto fr = ingest(p);
-    if (fr.kind == "skipped")
-      std::fprintf(stderr, "warning: スキップ: %s\n", basename_of(p).c_str());
-    files.push_back(std::move(fr));
-  }
+  auto files = ingest_files(a.files, build_table_specs(a));
 
   std::vector<tokenizer::ConfirmedTerm> confirmed;
   if (!a.candidates.empty()) {
     confirmed = read_candidates_jsonl(a.candidates);  // 権威ファイル（モデル不要）
   } else {
-    for (const auto& c : detect_candidates(eng, files))  // ワンショット自動（全マスク）
-      confirmed.push_back({c.text, c.entity_type});
+    bool has_prose = false;  // 純表のみならモデルを積まない
+    for (const auto& fr : files)
+      if (!fr.has_table && fr.kind != "skipped" && !fr.text.empty()) { has_prose = true; break; }
+    if (has_prose)
+      for (const auto& c : detect_candidates(eng, files))  // ワンショット自動（全マスク）
+        confirmed.push_back({c.text, c.entity_type});
   }
 
   eng.load_sudachi();
@@ -435,12 +608,32 @@ void print_usage() {
     "  detect  <files...> [-o cand.jsonl] [--data DIR]\n"
     "  mask    <files...> [--candidates cand.jsonl] [--reversible --mapping map.jsonl]\n"
     "                     [-o out.txt] [--data DIR]\n"
-    "  restore --mapping map.jsonl [-i in.txt] [-o out.txt]\n");
+    "  restore --mapping map.jsonl [-i in.txt] [-o out.txt]\n"
+    "\n"
+    "  data tables (csv/xlsx): mask/detect も同じ 1 呼び出しで prose と対応表を共有\n"
+    "    --tables tables.jsonl                per-file 列指定 {file,sheet,header_row,name_cols,company_cols}\n"
+    "    --table --name-cols A,B --company-cols C [--header-row N] [--sheet NAME]\n"
+    "                                         単一表の簡易指定（列は見出し名 or 1始まり番号）\n");
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+  // Windows は argv を cp932 で渡す。日本語のシート名・列名（--sheet/--name-cols）が
+  // UTF-8 の内部と一致しなくなるので、UTF-16 のコマンドラインから UTF-8 で作り直す。
+  int wargc = 0;
+  LPWSTR* wargv = CommandLineToArgvW(GetCommandLineW(), &wargc);
+  std::vector<std::string> u8;
+  std::vector<char*> u8ptr;
+  if (wargv) {
+    for (int i = 0; i < wargc; ++i) u8.push_back(wide_to_utf8(wargv[i]));
+    LocalFree(wargv);
+    for (auto& s : u8) u8ptr.push_back(s.data());
+    argc = wargc;
+    argv = u8ptr.data();
+  }
+#endif
   try {
     const Args a = parse_args(argc, argv);
     if (a.sub == "detect") return cmd_detect(a);

@@ -261,6 +261,9 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
         ${CMAKE_CURRENT_BINARY_DIR}/pcre2)
       target_link_libraries(jp_pii_sanitizer_cli PRIVATE
         ${ASPOSE_LIB} ${ORT_LIB} ${TOKSHIM_LIB} ${SHIM_LIB} pcre2-8 ${PDFIUM_LIB} ${SYS_LIBS})
+      if(WIN32)
+        target_link_libraries(jp_pii_sanitizer_cli PRIVATE shell32)  # CommandLineToArgvW
+      endif()
       set_target_properties(jp_pii_sanitizer_cli PROPERTIES BUILD_RPATH ${PDFIUM_DIR}/lib)
       if(WIN32)
         copy_runtime_dll(jp_pii_sanitizer_cli ${ORT_DLLS} ${PDFIUM_DLL})

@@ -80,6 +80,98 @@ inline std::vector<std::string> sheet_entries_in_order(const std::string& path) 
   return out;
 }
 
+/// (シート名, worksheet エントリ名) を workbook 順に返す（--sheet の名前解決用）。
+inline std::vector<std::pair<std::string, std::string>> sheets_in_order(const std::string& path) {
+  std::map<std::string, std::string> rid2target;
+  {
+    const std::string rels = zip_read(path, "xl/_rels/workbook.xml.rels");
+    pugi::xml_document doc;
+    if (doc.load_buffer(rels.data(), rels.size())) {
+      for (const auto& r : doc.select_nodes("//*[local-name()='Relationship']")) {
+        const std::string id = r.node().attribute("Id").value();
+        std::string tgt = r.node().attribute("Target").value();
+        if (tgt.rfind("/xl/", 0) == 0) tgt = tgt.substr(1);
+        else if (tgt.rfind("worksheets/", 0) == 0) tgt = "xl/" + tgt;
+        rid2target[id] = tgt;
+      }
+    }
+  }
+  std::vector<std::pair<std::string, std::string>> out;
+  const std::string wb = zip_read(path, "xl/workbook.xml");
+  pugi::xml_document doc;
+  if (doc.load_buffer(wb.data(), wb.size())) {
+    for (const auto& s : doc.select_nodes("//*[local-name()='sheet']")) {
+      const std::string name = s.node().attribute("name").value();
+      std::string rid;
+      for (const auto& a : s.node().attributes())
+        if (std::string(a.name()).find(":id") != std::string::npos) rid = a.value();
+      const auto it = rid2target.find(rid);
+      if (it != rid2target.end()) out.emplace_back(name, it->second);
+    }
+  }
+  return out;
+}
+
+/// 1シートを列位置を保った grid にする（sheet_prose と違い空セルを詰めない＝表マスク用）。
+/// 行は `r` 属性（1始まりのシート行番号）で位置づける。これにより --header-row N が
+/// スプレッドシートの行番号と一致する（空行・タイトル行があっても正しく引ける）。
+inline std::vector<std::vector<std::string>> sheet_rows(const std::string& xml,
+                                                        const std::vector<std::string>& shared) {
+  pugi::xml_document doc;
+  std::vector<std::vector<std::string>> grid;
+  if (!doc.load_buffer(xml.data(), xml.size())) return grid;
+  int maxcol = -1, maxrow = 0, seq = 0;
+  std::map<int, std::map<int, std::string>> byrow;  // シート行(1始まり) → (列 → 値)
+  for (const auto& rownode : doc.select_nodes("//*[local-name()='row']")) {
+    ++seq;
+    int rnum = rownode.node().attribute("r").as_int(0);
+    if (rnum <= 0) rnum = seq;
+    std::map<int, std::string> cells;
+    for (const auto& c : rownode.node().children()) {
+      if (std::string(c.name()).find("c") == std::string::npos) continue;
+      const std::string ref = c.attribute("r").value();
+      const std::string type = c.attribute("t").value();
+      std::string val;
+      if (type == "s") {
+        const auto v = c.child("v").text().get();
+        const int idx = v[0] ? std::stoi(v) : -1;
+        if (idx >= 0 && idx < static_cast<int>(shared.size())) val = shared[idx];
+      } else if (type == "inlineStr") {
+        for (const auto& t : c.select_nodes(".//*[local-name()='t']"))
+          val += t.node().text().get();
+      } else {
+        val = c.child("v").text().get();
+      }
+      const int col = col_of(ref);
+      if (col < 0) continue;
+      cells[col] = val;
+      if (col > maxcol) maxcol = col;
+    }
+    if (!cells.empty()) { byrow[rnum] = std::move(cells); if (rnum > maxrow) maxrow = rnum; }
+  }
+  if (maxrow == 0 || maxcol < 0) return grid;
+  grid.assign(static_cast<std::size_t>(maxrow),
+              std::vector<std::string>(static_cast<std::size_t>(maxcol + 1), ""));
+  for (const auto& rc : byrow)
+    for (const auto& cv : rc.second)
+      if (rc.first >= 1 && rc.first <= maxrow && cv.first <= maxcol)
+        grid[static_cast<std::size_t>(rc.first - 1)][static_cast<std::size_t>(cv.first)] = cv.second;
+  return grid;
+}
+
+/// シート名指定で grid を読む（空指定・不一致なら先頭シート）。
+inline std::vector<std::vector<std::string>> read_xlsx_sheet_rows(const std::string& path,
+                                                                  const std::string& sheet_name) {
+  const auto shared = read_shared_strings(path);
+  const auto sheets = sheets_in_order(path);
+  if (sheets.empty()) return {};
+  std::string entry = sheets.front().second;
+  if (!sheet_name.empty())
+    for (const auto& ns : sheets)
+      if (ns.first == sheet_name) { entry = ns.second; break; }
+  return sheet_rows(zip_read(path, entry), shared);
+}
+
 /// 1シートを行ごとの「非空セルを列順で tab 連結」した文字列にする（_rows_to_prose 相当）。
 inline std::string sheet_prose(const std::string& xml, const std::vector<std::string>& shared) {
   pugi::xml_document doc;
