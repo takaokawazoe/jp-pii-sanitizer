@@ -241,6 +241,30 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_BINARY_DIR}/pcre2)
       target_link_libraries(phase4_msg PRIVATE ${ASPOSE_LIB} pcre2-8 ${SYS_LIBS})
+
+      # CLI（Phase A: prose）。WebView2 不要＝クロスプラットフォーム。msg.hpp を含むため
+      # この TU は Aspose を取り込む（GUI facade core.hpp は Aspose 非依存のまま）。
+      add_executable(jp_pii_sanitizer_cli src/cli/main.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz/miniz.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/pugixml/src/pugixml.cpp)
+      set_target_properties(jp_pii_sanitizer_cli PROPERTIES OUTPUT_NAME "jp-pii-sanitizer-cli")
+      add_dependencies(jp_pii_sanitizer_cli aspose_build tokenizer_shim_build sudachi_shim_build)
+      target_compile_options(jp_pii_sanitizer_cli PRIVATE ${ASPOSE_MSG_FLAGS})
+      target_include_directories(jp_pii_sanitizer_cli PRIVATE
+        ${ASPOSE_DIR}/include
+        ${ORT_DIR}/include
+        ${PDFIUM_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/pugixml/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_BINARY_DIR}/pcre2)
+      target_link_libraries(jp_pii_sanitizer_cli PRIVATE
+        ${ASPOSE_LIB} ${ORT_LIB} ${TOKSHIM_LIB} ${SHIM_LIB} pcre2-8 ${PDFIUM_LIB} ${SYS_LIBS})
+      set_target_properties(jp_pii_sanitizer_cli PROPERTIES BUILD_RPATH ${PDFIUM_DIR}/lib)
+      if(WIN32)
+        copy_runtime_dll(jp_pii_sanitizer_cli ${ORT_DLLS} ${PDFIUM_DLL})
+      endif()
     endif()
 
     # Phase 5: WebView2 GUI（Windows 専用）。
