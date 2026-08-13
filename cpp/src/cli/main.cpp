@@ -294,6 +294,62 @@ std::map<std::string, TableSpec> read_tables_jsonl(const std::string& path) {
   return out;
 }
 
+// 見出し語から列種別を推測（skeleton の初期値・人が最終編集する）
+std::string guess_col_kind(const std::string& header) {
+  static const std::vector<std::string> name_kw = {
+      "氏名", "名前", "担当", "姓名", "顧客名", "会員名", "氏 名", "name", "Name"};
+  static const std::vector<std::string> comp_kw = {
+      "会社", "取引先", "法人", "企業", "組織", "得意先", "屋号", "company", "Company"};
+  for (const auto& k : name_kw) if (header.find(k) != std::string::npos) return "name";
+  for (const auto& k : comp_kw) if (header.find(k) != std::string::npos) return "company";
+  return "";
+}
+
+json skeleton_entry(const std::string& file, const std::string& sheet,
+                    const std::vector<std::string>& headers, int header_row_1based) {
+  json j;
+  j["file"] = file;
+  if (!sheet.empty()) j["sheet"] = sheet;
+  j["header_row"] = header_row_1based;
+  json ncols = json::array(), ccols = json::array();
+  for (const auto& h : headers) {
+    if (utf8::trim(h).empty()) continue;
+    const std::string k = guess_col_kind(h);
+    if (k == "name") ncols.push_back(h);
+    else if (k == "company") ccols.push_back(h);
+  }
+  j["name_cols"] = ncols;
+  j["company_cols"] = ccols;
+  return j;
+}
+
+// csv は1件・xlsx はシートごとに雛形を出す（人は不要シート行を削除・列を確認して編集）。
+std::vector<json> table_skeletons(const std::string& path) {
+  std::vector<json> out;
+  const std::string e = ext_of(path);
+  const std::string b = basename_of(path);
+  try {
+    if (e == "csv") {
+      const auto rows = extractors::read_csv_rows(path);
+      const std::size_t hi = extractors::detect_header_row(rows, {});
+      const std::vector<std::string> headers = hi < rows.size() ? rows[hi] : std::vector<std::string>{};
+      out.push_back(skeleton_entry(b, "", headers, static_cast<int>(hi) + 1));
+    } else if (e == "xlsx") {
+      const auto shared = ooxml::read_shared_strings(path);
+      for (const auto& ns : ooxml::sheets_in_order(path)) {
+        const auto rows = ooxml::sheet_rows(ooxml::zip_read(path, ns.second), shared);
+        if (rows.empty()) continue;
+        const std::size_t hi = extractors::detect_header_row(rows, {});
+        const std::vector<std::string> headers = hi < rows.size() ? rows[hi] : std::vector<std::string>{};
+        out.push_back(skeleton_entry(b, ns.first, headers, static_cast<int>(hi) + 1));
+      }
+    }
+  } catch (const std::exception& ex) {
+    std::fprintf(stderr, "warning: 表の見出し取得に失敗: %s (%s)\n", b.c_str(), ex.what());
+  }
+  return out;
+}
+
 std::vector<step5::FileResult> ingest_files(const std::vector<std::string>& paths,
                                             const std::map<std::string, TableSpec>& specs) {
   std::vector<step5::FileResult> files;
@@ -449,6 +505,7 @@ struct Args {
   bool reversible = false;
   // 表オプション（Phase B）
   std::string tables;          // --tables tables.jsonl（複数ファイル/シートの列指定）
+  std::string tables_out;      // --tables-out（detect が csv/xlsx の列雛形を書く先）
   bool table = false;          // --table（単一表の簡易指定・入力の csv/xlsx に適用）
   int header_row = 0;          // --header-row N（1始まり・0=自動）
   std::string sheet;           // --sheet NAME（xlsx）
@@ -488,6 +545,7 @@ Args parse_args(int argc, char** argv) {
     else if (t == "--data") a.data = need(i);
     else if (t == "--reversible") a.reversible = true;
     else if (t == "--tables") a.tables = need(i);
+    else if (t == "--tables-out") a.tables_out = need(i);
     else if (t == "--table") a.table = true;
     else if (t == "--sheet") a.sheet = need(i);
     else if (t == "--header-row") a.header_row = std::stoi(need(i));
@@ -523,12 +581,47 @@ std::map<std::string, TableSpec> build_table_specs(const Args& a) {
 // ---------------------------------------------------------------- subcommands
 int cmd_detect(const Args& a) {
   if (a.files.empty()) die("detect: 対象ファイルを指定してください");
-  Engine eng(resolve_data_root(a.data));
-  auto files = ingest_files(a.files, build_table_specs(a));
-  const auto cands = detect_candidates(eng, files);
-  OutSink sink(a.out);
-  write_candidates_jsonl(sink.stream(), cands);
-  std::fprintf(stderr, "detect: 候補 %zu 件\n", cands.size());
+  // prose（NER候補）と 表 csv/xlsx（列雛形）に分ける
+  std::vector<std::string> prose_files, table_files;
+  for (const auto& p : a.files) {
+    const std::string e = ext_of(p);
+    if (e == "csv" || e == "xlsx") table_files.push_back(p);
+    else prose_files.push_back(p);
+  }
+
+  // prose → 候補 JSONL（-o / stdout）
+  if (!prose_files.empty()) {
+    Engine eng(resolve_data_root(a.data));
+    auto files = ingest_files(prose_files, {});
+    const auto cands = detect_candidates(eng, files);
+    OutSink sink(a.out);
+    write_candidates_jsonl(sink.stream(), cands);
+    std::fprintf(stderr, "detect: 候補 %zu 件\n", cands.size());
+  }
+
+  // 表 → tables.jsonl 雛形（--tables-out）
+  if (!table_files.empty()) {
+    if (a.tables_out.empty()) {
+      std::fprintf(stderr,
+        "warning: csv/xlsx がありますが --tables-out 未指定のため表の列雛形を出力しません\n");
+    } else {
+      std::ofstream tf(a.tables_out, std::ios::binary);
+      if (!tf) die("--tables-out を開けません: " + a.tables_out);
+      std::size_t n = 0;
+      for (const auto& p : table_files)
+        for (const auto& j : table_skeletons(p)) {
+          // 列を推測できないシート（フォーム等）はコメント行にする＝mask では無視される。
+          // 同一ファイルの複数シートが basename キーで衝突するのも防ぐ（不要なら残す/消す）。
+          const bool empty = j["name_cols"].empty() && j["company_cols"].empty();
+          if (empty) tf << "# ";
+          tf << j.dump() << "\n";
+          ++n;
+        }
+      std::fprintf(stderr,
+        "detect: 表の列雛形 %zu 件 → %s（不要なシート行は削除し、name_cols/company_cols を確認）\n",
+        n, a.tables_out.c_str());
+    }
+  }
   return 0;
 }
 
@@ -605,7 +698,7 @@ int cmd_restore(const Args& a) {
 void print_usage() {
   std::fprintf(stderr,
     "jp-pii-sanitizer CLI\n"
-    "  detect  <files...> [-o cand.jsonl] [--data DIR]\n"
+    "  detect  <files...> [-o cand.jsonl] [--tables-out tables.jsonl] [--data DIR]\n"
     "  mask    <files...> [--candidates cand.jsonl] [--reversible --mapping map.jsonl]\n"
     "                     [-o out.txt] [--data DIR]\n"
     "  restore --mapping map.jsonl [-i in.txt] [-o out.txt]\n"
