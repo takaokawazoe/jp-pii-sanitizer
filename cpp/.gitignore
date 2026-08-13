@@ -1,0 +1,29 @@
+# モデル・辞書・プリビルド依存はリポジトリに入れない（合計1.6GB超）
+models/*.onnx
+models/tokenizer.json
+third_party/onnxruntime/
+third_party/json.hpp
+
+# ビルド成果物
+build/
+target/
+tokenizer-shim/target/
+sudachi-shim/target/
+
+# プリビルド／ソース取得する third_party 依存（README に取得手順。リポジトリには入れない）
+third_party/pcre2/
+third_party/miniz/
+third_party/pugixml/
+third_party/pdfium/
+third_party/aspose-email/
+
+# Python のキャッシュ
+tools/__pycache__/
+
+# Windows: runtime assets copied from WSL & the real .msg fixture (see README Windows section)
+models/sudachi/
+testdata/test.msg
+third_party/webview2/
+third_party/wil/
+dist/
+src/app/app_preview.png

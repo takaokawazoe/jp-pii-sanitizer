@@ -1,0 +1,16 @@
+[package]
+name = "sudachi_shim"
+version = "0.1.0"
+edition = "2021"
+
+# Python 版(SudachiPy 0.6.11)は sudachi.rs の薄いバインディングなので、C++ から同じ Rust の核に
+# 繋げば品詞・読みが完全一致する（MeCab に乗り換えると品詞体系が変わり再測定が要る）。
+# 公式クレートは crates.io に無いので git 参照。**必ず rev で固定する**（挙動が変わると
+# Python 版との一致が崩れ、eval の数字が意味を失うため）。
+[dependencies]
+sudachi = { git = "https://github.com/WorksApplications/sudachi.rs", rev = "f4dd8f2" }
+
+[lib]
+name = "sudachi_shim"
+# C++ から C ABI で叩くので cdylib。staticlib も出しておくと単一バイナリにしやすい。
+crate-type = ["cdylib", "staticlib"]

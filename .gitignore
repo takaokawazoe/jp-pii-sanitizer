@@ -1,0 +1,13 @@
+# Root .gitignore. Build artifacts and fetched dependencies live under cpp/ and
+# are ignored by cpp/.gitignore. This file covers OS/editor cruft at the root.
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+*.swp
+*~
+.vscode/
+.idea/

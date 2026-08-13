@@ -1,0 +1,3 @@
+// アプリアイコン。ID 1 = exe の既定アイコン（Explorer/タスクバーが最小IDのICONを使う）。
+// "app/app.ico" は target_include_directories の src（/I）経由で src/app/app.ico に解決される。
+1 ICON "app/app.ico"

@@ -1,0 +1,19 @@
+[package]
+name = "tokenizer_shim"
+version = "0.1.0"
+edition = "2021"
+
+# tokenizers-cpp（mlc-ai）を使わない理由:
+#  1. 公開 Encode(text) が add_special_tokens=false 決め打ちで、xlm-roberta が要る <s>/</s> が
+#     付かない（Phase 0 で踏んだ。2引数版は実装クラスにしか無く抽象IFから届かない）。
+#  2. **offsets（offset_mapping）を FFI が公開していない。** HF の集約は文字オフセットを
+#     使うので、これが無いと hf_spans を作れない。
+#  3. sentencepiece をサブモジュールで抱えて102MB。ここでは tokenizer.json（HF形式）しか
+#     使わないので不要。
+# → sudachi-shim と同じ流儀で薄く自作する。
+[dependencies]
+tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
+
+[lib]
+name = "tokenizer_shim"
+crate-type = ["cdylib", "staticlib"]

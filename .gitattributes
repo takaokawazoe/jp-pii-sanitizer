@@ -1,0 +1,20 @@
+# Default: let Git normalize line endings for text, auto-detect binary.
+* text=auto
+
+# Test fixtures and oracles must keep their exact bytes. EOL conversion (e.g.
+# autocrlf on Windows) would change the bytes and break byte-exact conformance
+# tests, so disable any conversion for these trees.
+cpp/testdata/**  -text
+samples/**       -text
+msg-sample/**    -text
+
+# Binary assets: never diff or convert.
+*.ico   binary
+*.onnx  binary
+*.dic   binary
+*.docx  binary
+*.pptx  binary
+*.xlsx  binary
+*.pdf   binary
+*.msg   binary
+*.eml   binary

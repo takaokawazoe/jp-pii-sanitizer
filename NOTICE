@@ -1,0 +1,93 @@
+jp-pii-sanitizer
+Copyright 2026 tkawazoe
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+本製品は Apache License, Version 2.0 のもとで提供されます（LICENSE 参照）。第三者コンポーネント
+の一覧と帰属を以下に示します。各コンポーネントは各自のライセンスに従います。
+
+================================================================================
+Third-party components
+================================================================================
+
+This software builds against and/or bundles the following third-party
+components. Each remains under its own license; the relevant license texts are
+reproduced by the upstream projects and, where redistributed, accompany the
+corresponding files. Source for each is fetched by the build (see cpp/README.md)
+or bundled with released binaries.
+
+Runtime libraries
+-----------------
+- ONNX Runtime (Microsoft)
+  License: MIT
+  https://github.com/microsoft/onnxruntime
+
+- Hugging Face tokenizers (Rust crate `tokenizers`)
+  License: Apache-2.0
+  https://github.com/huggingface/tokenizers
+
+- sudachi.rs (Works Applications Co., Ltd.)
+  License: Apache-2.0
+  https://github.com/WorksApplications/sudachi.rs
+
+- PCRE2
+  License: BSD-3-Clause (PCRE2 licence)
+  https://github.com/PCRE2Project/pcre2
+
+- miniz
+  License: MIT
+  https://github.com/richgel999/miniz
+
+- pugixml
+  License: MIT
+  https://github.com/zeux/pugixml
+
+- nlohmann/json
+  License: MIT
+  https://github.com/nlohmann/json
+
+- PDFium (prebuilt binaries by bblanchon; upstream: The Chromium Authors)
+  License: BSD-3-Clause / Apache-2.0
+  https://github.com/bblanchon/pdfium-binaries
+
+- Aspose.Email FOSS for C++
+  License: MIT
+  https://github.com/aspose-email-foss/Aspose.Email-FOSS-for-CPP
+  NOTE: This component is vendored and patched. The patch that this project
+  applies lives in cpp/patches/ and is provided under the same MIT terms.
+
+- Microsoft Edge WebView2 SDK
+  License: Microsoft Software License Terms (see the NuGet package
+  `Microsoft.Web.WebView2`). Redistribution of the WebView2Loader is permitted
+  under those terms. The WebView2 Runtime itself is provided by Microsoft and
+  is not redistributed by this project.
+  https://developer.microsoft.com/microsoft-edge/webview2/
+
+Bundled data (distributed with released binaries; not stored in this repository)
+--------------------------------------------------------------------------------
+- NER model: tsmatz/xlm-roberta-ner-japanese
+  License: MIT
+  Fine-tuned from xlm-roberta-base (Facebook AI / FAIR), which is MIT licensed.
+  This project distributes the model converted to ONNX (fp16). The conversion
+  does not alter the licensing.
+  https://huggingface.co/tsmatz/xlm-roberta-ner-japanese
+
+- SudachiDict (core) — morphological analysis dictionary
+  Copyright: Works Applications Co., Ltd.
+  License: Apache-2.0
+  SudachiDict incorporates data derived from additional sources, including
+  UniDic and (in part) NEologd; those upstream sources carry their own
+  attribution/license terms, which are reproduced by the SudachiDict project.
+  https://github.com/WorksApplications/SudachiDict
+
+================================================================================
+Sample and test data
+================================================================================
+
+All files under samples/, msg-sample/, and cpp/testdata/ are synthetic. Every
+personal name, organization, address, phone number, and e-mail address in them
+is fictitious (e-mail addresses use the reserved example domain example-corp.jp
+or other non-routable placeholders). They contain no real personal information.
+
+samples/・msg-sample/・cpp/testdata/ 配下のファイルはすべて合成データです。含まれる氏名・
+組織名・住所・電話番号・メールアドレスはすべて架空で（メールは予約された example ドメインや
+到達不能なプレースホルダを使用）、実在の個人情報は含みません。

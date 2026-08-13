@@ -1,0 +1,21 @@
+diff --git a/src/msg/mapi_message.cpp b/src/msg/mapi_message.cpp
+index e6f8740..b0e61c7 100644
+--- a/src/msg/mapi_message.cpp
++++ b/src/msg/mapi_message.cpp
+@@ -95,6 +95,16 @@ constexpr std::uint16_t attach_extension_property_id = 0x3703;
+         return *text;
+     }
+ 
++    // --- aireport patch（cpp-port.md Phase 4c）---
++    // 実物の Outlook .msg では HTML本文(PidTagHtml/0x1013) が **PT_BINARY** で入る
++    // （末尾 0102）。upstream は string 型しか見ず空を返すため html_body() が 0 bytes になり、
++    // 平文本文の無い HTML メールで本文を丸ごと落とす。バイナリ値なら生バイト列を文字列に
++    // する（実測: このHTMLは null 無しの生UTF-8 で、そのまま扱える）。
++    if (const auto* data = std::any_cast<std::vector<std::uint8_t>>(&value))
++    {
++        return std::string(data->begin(), data->end());
++    }
++
+     return {};
+ }
+ 

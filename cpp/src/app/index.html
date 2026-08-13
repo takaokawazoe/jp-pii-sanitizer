@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>PIIサニタイザ</title>
+<style>
+ :root{--cand:#ffe08a;--auto:#a8d8ff}
+ html,body{height:100%}
+ body{font-family:'Segoe UI','Meiryo',sans-serif;margin:0;color:#1b1b1b;display:flex;flex-direction:column}
+ header{background:#0a7d64;color:#fff;padding:8px 16px 0;flex:0 0 auto}
+ header h1{font-size:16px;margin:0 0 6px}
+ .tabs{display:flex;gap:4px}
+ .tab{padding:7px 18px;font-size:13px;border:none;background:rgba(255,255,255,.18);color:#fff;border-radius:6px 6px 0 0;cursor:pointer}
+ .tab.active{background:#fff;color:#0a7d64;font-weight:bold}
+ .panel{display:none;flex:1 1 auto;min-height:0}
+ .panel.active{display:block}
+ #tab-san.active{display:grid;grid-template-columns:340px 1fr}
+ .revwrap{padding:16px;max-width:820px}
+ #left{border-right:1px solid #ddd;padding:12px;display:flex;flex-direction:column;min-height:0;overflow:auto}
+ #left .lefttop,#left .leftbot{flex:0 0 auto}
+ #left .leftbot{border-top:1px solid #eee;margin-top:8px;padding-top:8px}
+ #cands{flex:1 1 auto;overflow:auto;min-height:60px;border:1px solid #eee;border-radius:4px;padding:4px 6px;margin:4px 0}
+ #right{padding:12px;display:flex;flex-direction:column;min-height:0}
+ #preview{flex:1 1 auto;overflow:auto;min-height:0}
+ #output{flex:0 0 auto}
+ button{padding:7px 14px;font-size:13px;border:1px solid #0a7d64;background:#0a7d64;color:#fff;border-radius:5px;cursor:pointer}
+ button.sec{background:#fff;color:#0a7d64}
+ .cand-row{display:flex;gap:6px;align-items:center;font-size:13px;padding:2px 0;border-bottom:1px solid #f0f0f0}
+ .cand-row .t{flex:1} .cand-row .ty{color:#888;font-size:11px} .cand-row .rm{cursor:pointer;color:#c00;font-size:12px}
+ .cand-row.manual{background:#fff7e6}
+ .madd{display:flex;gap:4px;margin:6px 0} .madd input{flex:1;min-width:0;font-size:12px} .madd select{font-size:12px}
+ .hlbox{border:1px solid #ddd;border-radius:6px;padding:10px;margin:8px 0;white-space:pre-wrap;font-size:13px}
+ .hlbox mark.cand{background:var(--cand)} .hlbox mark.auto{background:var(--auto);border-radius:2px}
+ .legend span{display:inline-block;padding:1px 8px;border-radius:3px;margin-right:8px;font-size:12px}
+ h3{font-size:13px;margin:14px 0 6px;color:#0a7d64} textarea{width:100%;box-sizing:border-box;font-family:'Consolas',monospace;font-size:12px}
+ #status{font-size:12px;color:#666;margin:6px 0} .blocklabel{font-size:12px;color:#0a7d64;font-weight:bold;margin-top:8px}
+ #loaded{font-size:11px;color:#0a7d64;margin:4px 0;word-break:break-all}
+ .leak{color:#c00;font-weight:bold}
+ .rowbtns{margin:8px 0;display:flex;gap:8px;align-items:center}
+ #resultBody textarea{background:#fafafa}
+</style></head>
+<body>
+<header>
+ <h1>PIIサニタイザ（C++ / WebView2）</h1>
+ <nav class="tabs">
+   <button class="tab active" data-tab="san">🛡 サニタイズ</button>
+   <button class="tab" data-tab="result">📄 結果</button>
+   <button class="tab" data-tab="rev">↩ 逆置換</button>
+ </nav>
+</header>
+<section id="tab-san" class="panel active">
+ <div id="left">
+   <div class="lefttop">
+     <button id="open">📂 ファイルを追加</button>
+     <div id="status">対応: docx / pptx / xlsx / pdf / csv / txt</div>
+     <div id="loaded"></div>
+     <h3 style="margin-bottom:2px">候補（既定＝全マスク・外すものだけチェックを外す）</h3>
+   </div>
+   <div id="cands"></div>
+   <div class="leftbot">
+     <div class="madd">
+       <input id="maddText" placeholder="NERが見落とした語を手動で追記">
+       <select id="maddType"><option value="PERSON">人名</option><option value="ORGANIZATION">会社</option><option value="LOCATION">住所</option></select>
+       <button class="sec" id="madd">＋ 追記</button>
+     </div>
+     <div><button class="sec" id="prev">🔄 プレビュー更新</button></div>
+     <h3>サニタイズ</h3>
+     <label><input type="radio" name="rev" value="1" checked> 可逆（対応表）</label>
+     <label><input type="radio" name="rev" value="0"> 不可逆（墨消し）</label>
+     <div class="rowbtns" style="margin-top:6px"><button id="san">▶ サニタイズ実行</button><button class="sec" id="reset">🗑 リセット</button></div>
+   </div>
+ </div>
+ <div id="right">
+   <div class="legend"><span style="background:var(--cand)">候補系（人名/会社/住所）</span><span style="background:var(--auto)">自動系（メール/電話/郵便）</span></div>
+   <div id="preview"></div>
+   <div id="output"></div>
+ </div>
+</section>
+<section id="tab-result" class="panel">
+ <div class="revwrap" id="resultBody">
+   <p style="color:#666">「▶ サニタイズ実行」を押すと、ここに結果と対応表が表示されます。</p>
+ </div>
+</section>
+<section id="tab-rev" class="panel">
+ <div class="revwrap">
+   <h3>逆置換（社内AIの出力＋対応表 → 実名）</h3>
+   <p style="font-size:12px;color:#666;margin:0 0 8px">社内AIが返したトークン入りテキストと、サニタイズ時に保存した対応表CSVを貼り付けて実名に戻します。</p>
+   <textarea id="rvtext" rows="8" placeholder="トークン入りテキスト（{{PERSON_1}} 等）"></textarea>
+   <textarea id="rvmap" rows="5" placeholder="対応表 CSV: token,original"></textarea>
+   <div><button class="sec" id="rv">実名に戻す</button></div>
+   <div id="rvout"></div>
+ </div>
+</section>
+<script>
+ let seq=1, candidates=[], blocks=[], manual=[], lastSanitized='', lastMapping=[], docBase='output', openedPaths=[];
+ const mappingCsv=()=>'token,original\n'+lastMapping.map(x=>x.token+','+x.original).join('\n');
+ const baseName=p=>p.replace(/^.*[\\/]/,'');
+ const $=id=>document.getElementById(id);
+ const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+ const send=o=>{o.id=seq++; window.chrome.webview.postMessage(JSON.stringify(o)); return o.id;};
+
+ // タブ切り替え（サニタイズ ①②③ / 結果 / 逆置換 ④）
+ function switchTab(name){
+   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active', x.dataset.tab===name));
+   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.id==='tab-'+name));
+ }
+ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
+
+ // コードポイント単位のスパンで <mark> を挿入（コアのオフセットは文字＝コードポイント）
+ function highlight(text, spans){
+   const cp=[...text]; // コードポイント配列
+   const catClass=c=>['person','company','address'].includes(c)?'cand':'auto';
+   let out='', pos=0;
+   const sorted=[...spans].sort((a,b)=>a[0]-b[0]);
+   for(const [b,e,cat] of sorted){
+     if(b<pos) continue;
+     out+=esc(cp.slice(pos,b).join(''));
+     out+='<mark class="'+catClass(cat)+'" title="'+cat+'">'+esc(cp.slice(b,e).join(''))+'</mark>';
+     pos=e;
+   }
+   out+=esc(cp.slice(pos).join(''));
+   return out;
+ }
+ function currentConfirmed(){
+   const conf=[];
+   document.querySelectorAll('.cand-row').forEach(r=>{
+     if(r.querySelector('input').checked){
+       conf.push({text:r.dataset.text, type:r.dataset.type});
+     }
+   });
+   return conf;
+ }
+ const JP={PERSON:'人名',ORGANIZATION:'会社',LOCATION:'住所'};
+ function makeRow(text, type, isManual){
+   const row=document.createElement('div');
+   row.className='cand-row'+(isManual?' manual':''); row.dataset.text=text; row.dataset.type=type;
+   const ty=JP[type]||type;
+   row.innerHTML='<input type="checkbox" checked><span class="t">'+esc(text)+
+     '</span><span class="ty">'+ty+'</span>';
+   if(isManual){
+     const x=document.createElement('span'); x.className='rm'; x.textContent='✕'; x.title='削除';
+     x.onclick=()=>{ manual=manual.filter(m=>!(m.text===text&&m.type===type)); renderCands(); };
+     row.appendChild(x);
+   }
+   return row;
+ }
+ function renderCands(){
+   $('cands').innerHTML='';
+   candidates.forEach(c=>$('cands').appendChild(makeRow(c.text, c.entity_type, false)));
+   manual.forEach(m=>$('cands').appendChild(makeRow(m.text, m.type, true)));
+   $('status').textContent=candidates.length+' 件検出'+(manual.length?(' ＋手動'+manual.length+' 件'):'');
+ }
+ function addManual(){
+   const t=$('maddText').value.trim(); if(!t) return;
+   const ty=$('maddType').value;
+   if(!manual.some(m=>m.text===t&&m.type===ty)) manual.push({text:t, type:ty});
+   $('maddText').value=''; renderCands();
+ }
+ function renderLoaded(){
+   $('loaded').innerHTML = openedPaths.length
+     ? '読込中（'+openedPaths.length+'）: '+openedPaths.map(p=>esc(baseName(p))).join(' / ')
+     : '';
+ }
+ function renderPreview(){
+   const el=$('preview'); el.innerHTML='<h3>プレビュー（マスクされる箇所）</h3>';
+   blocks.forEach(b=>{
+     const lbl=document.createElement('div'); lbl.className='blocklabel'; lbl.textContent='【'+b.source+'】'+(b.kind||'');
+     const box=document.createElement('div'); box.className='hlbox';
+     box.innerHTML=highlight(b.text||'', b.spans||[]);
+     el.appendChild(lbl); el.appendChild(box);
+   });
+ }
+ window.chrome.webview.addEventListener('message', e=>{
+   const m=e.data;
+   if(typeof m!=='object'||!m.type) return;
+   if(m.type==='picked'){
+     let added=0;
+     (m.paths||[]).forEach(p=>{ if(!openedPaths.includes(p)){ openedPaths.push(p); added++; } });
+     renderLoaded();
+     if(added){ $('status').textContent='抽出中…（初回はモデル読込で数秒）'; send({cmd:'extractPaths', paths:openedPaths}); }
+   } else if(m.type==='extract'){
+     if(!m.ok){ $('status').textContent='エラー: '+(m.error||'不明'); return; }
+     candidates=m.candidates||[]; blocks=m.blocks||[];
+     // 保存時の既定ファイル名の元＝先頭ファイル名（拡張子除く）
+     docBase=(blocks[0]&&blocks[0].source)? blocks[0].source.replace(/\.[^.\/\\]+$/,'') : 'output';
+     renderCands(); renderPreview();
+   } else if(m.type==='preview'){
+     if(m.ok){ const map={}; (m.blocks||[]).forEach(b=>map[b.source]=b.spans);
+       blocks.forEach(b=>{ if(map[b.source]) b.spans=map[b.source]; }); renderPreview(); }
+   } else if(m.type==='sanitize'){
+     lastSanitized=m.sanitized||'';
+     lastMapping=(m.reversible && m.mapping)? m.mapping : [];
+     let h='<h3>サニタイズ結果</h3>';
+     if((m.leaks||[]).length){ h+='<div class="leak">⚠ 安全ゲート: '+m.leaks.length+' 件が本文に残存 — 送信前に確定へ戻ってください</div>'; }
+     else { h+='<div style="color:#0a7d64">✔ 安全ゲート通過（'+(m.mapping||[]).length+' 件をマスク）</div>'; }
+     h+='<div class="rowbtns"><button id="dlText">⬇ サニタイズ結果を保存</button></div>';
+     h+='<textarea rows="12" readonly>'+esc(lastSanitized)+'</textarea>';
+     if(lastMapping.length){
+       h+='<h3>対応表（最高機密・可逆時のみ）</h3>';
+       h+='<div class="rowbtns"><button id="dlMap">⬇ 対応表CSVを保存</button>'+
+          '<span style="font-size:12px;color:#c00">※AIに渡さず厳重管理</span></div>';
+       h+='<textarea rows="8" readonly>'+esc(mappingCsv())+'</textarea>';
+     }
+     h+='<div class="rowbtns" style="margin-top:12px"><button class="sec" id="back">◀ サニタイズ画面に戻る</button></div>';
+     $('resultBody').innerHTML=h;
+     $('dlText').onclick=()=>send({cmd:'saveFile', name:docBase+'_sanitized.txt', content:lastSanitized});
+     $('back').onclick=()=>switchTab('san');
+     if($('dlMap')) $('dlMap').onclick=()=>send({cmd:'saveFile', name:docBase+'_mapping.csv', content:mappingCsv()});
+     switchTab('result');
+   } else if(m.type==='reverse'){
+     let h='<h3>逆置換結果</h3>';
+     if((m.leftovers||[]).length) h+='<div class="leak">未置換トークン: '+m.leftovers.join(', ')+'</div>';
+     h+='<textarea rows="6">'+esc(m.restored||'')+'</textarea>';
+     $('rvout').innerHTML=h;
+   }
+ });
+ $('open').onclick=()=>send({cmd:'pickFiles'});   // 選んだファイルを既存に追加（accumulate）
+ $('reset').onclick=()=>{
+   if(!confirm('読み込んだファイル・候補・手動追記・結果をすべてクリアします。よろしいですか？')) return;
+   openedPaths=[]; candidates=[]; blocks=[]; manual=[]; lastSanitized=''; lastMapping=[]; docBase='output';
+   renderLoaded(); renderCands(); renderPreview();
+   $('resultBody').innerHTML='<p style="color:#666">「▶ サニタイズ実行」を押すと、ここに結果と対応表が表示されます。</p>';
+   $('status').textContent='対応: docx / pptx / xlsx / pdf / csv / txt';
+   switchTab('san');
+ };
+ $('madd').onclick=addManual;
+ $('maddText').addEventListener('keydown', e=>{ if(e.key==='Enter') addManual(); });
+ $('prev').onclick=()=>send({cmd:'preview', confirmed:currentConfirmed()});
+ $('san').onclick=()=>{ const rev=document.querySelector('input[name=rev]:checked').value==='1';
+   send({cmd:'sanitize', confirmed:currentConfirmed(), reversible:rev}); };
+ $('rv').onclick=()=>{
+   const rows=$('rvmap').value.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+   const map=[]; rows.forEach(l=>{ if(/^token\s*,\s*original$/i.test(l))return;
+     const i=l.indexOf(','); if(i>0) map.push({token:l.slice(0,i).trim(), original:l.slice(i+1).trim()}); });
+   send({cmd:'reverse', text:$('rvtext').value, mapping:map});
+ };
+</script>
+</body></html>

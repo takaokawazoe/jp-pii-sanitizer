@@ -1,0 +1,280 @@
+// Phase 5: WebView2 UI から呼ぶコア facade。
+//
+// app.py（Streamlit）の画面①〜④のバックエンドを C++ コアへ配線する薄い層。
+// UI（winmain.cpp）は JSON メッセージでこの facade を叩き、facade は
+// step2/hf_ner/tokenizer/step5/extractors を組み合わせて JSON を返す。
+//
+// この段の割り切り（最小疎通の次段）:
+//   - msg(.msg/.eml) は Aspose を app TU に持ち込むため後回し（別段で追加）。
+//   - csv は列指定 UI を省き prose 扱い（Python は既定データ表だが、まず end-to-end 優先）。
+// 検知・マスク・逆置換のロジック自体は Phase 0-5 で Python と一致済み（10/10 green）。
+#pragma once
+
+#include <algorithm>
+#include <cctype>
+#include <map>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "extractors.hpp"
+#include "file_io.hpp"
+#include "hf_ner.hpp"
+#include "json.hpp"
+#include "ooxml.hpp"
+#include "pdf.hpp"
+#include "step2.hpp"
+#include "step5.hpp"
+#include "sudachi_shim.hpp"
+#include "tokenizer.hpp"
+#include "utf8.hpp"
+
+namespace appcore {
+
+using nlohmann::json;
+
+inline std::string to_lower(std::string s) {
+  std::transform(s.begin(), s.end(), s.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return s;
+}
+
+inline std::string ext_of(const std::string& path) {
+  const auto dot = path.find_last_of('.');
+  return dot == std::string::npos ? "" : to_lower(path.substr(dot + 1));
+}
+
+inline std::string basename_of(const std::string& path) {
+  const auto slash = path.find_last_of("/\\");
+  return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+// find_mask_spans の結果を [[begin,end,category], ...] にする。
+inline json spans_to_json(const std::vector<tokenizer::MaskSpan>& spans) {
+  json arr = json::array();
+  for (const auto& s : spans) arr.push_back({s.begin, s.end, s.category});
+  return arr;
+}
+
+/// UI 一セッション分の状態を持つ facade。Streamlit の session_state 相当。
+class Core {
+ public:
+  // data_root は models/（model_fp16.onnx・tokenizer.json・labels.json・patterns.json）と
+  // sudachi/（resources・system.dic）を含むディレクトリ。exe から解決して渡す。
+  explicit Core(std::string data_root) : data_root_(std::move(data_root)) {}
+
+  bool ready() const { return inited_; }
+  const std::string& last_error() const { return err_; }
+
+  // モデル・辞書・パターンを読み込む（重い・初回のみ）。成否を返す。
+  bool ensure_init() {
+    if (inited_) return true;
+    try {
+      // patterns.json → 正規表現 8 本 ＋ ラベル写像
+      const std::string pj = fileio::read_all(data_root_ + "/patterns.json");
+      if (pj.empty()) throw std::runtime_error("patterns.json が読めません: " + data_root_);
+      const json pjson = json::parse(pj);
+      std::map<std::string, std::string> pats;
+      for (auto it = pjson["patterns"].begin(); it != pjson["patterns"].end(); ++it)
+        pats[it.key()] = it.value().get<std::string>();
+      patterns_ = std::make_unique<step2::Patterns>(pats);
+
+      std::map<std::string, std::string> lmap;
+      for (auto it = pjson["label_map"].begin(); it != pjson["label_map"].end(); ++it)
+        lmap[it.key()] = it.value().get<std::string>();
+
+      // Sudachi（形態素）
+      const std::string sres = data_root_ + "/sudachi/resources";
+      sd_ = std::make_unique<sudachi::Analyzer>(sres + "/sudachi.json", sres,
+                                                data_root_ + "/sudachi/system.dic");
+
+      // HF NER（ONNX）
+      ner_ = std::make_unique<hf::Ner>(data_root_ + "/model_fp16.onnx",
+                                       data_root_ + "/tokenizer.json",
+                                       data_root_ + "/labels.json", lmap);
+      inited_ = true;
+      return true;
+    } catch (const std::exception& e) {
+      err_ = e.what();
+      return false;
+    }
+  }
+
+  // ① アップロード→抽出 ＋ ② 候補検知。paths は絶対パス。
+  // 返り値: {ok, candidates:[{text,entity_type,count}], blocks:[{source,kind,text,spans}]}
+  json extract(const std::vector<std::string>& paths) {
+    if (!ensure_init()) return err_json();
+    results_.clear();
+    for (const auto& p : paths) {
+      step5::FileResult fr;
+      fr.source = basename_of(p);
+      try {
+        const std::string e = ext_of(p);
+        if (e == "docx") { fr.kind = "docx"; fr.text = ooxml::extract_docx(p); }
+        else if (e == "pptx") { fr.kind = "pptx"; fr.text = ooxml::extract_pptx(p); }
+        else if (e == "xlsx") { fr.kind = "xlsx-prose"; fr.text = ooxml::read_xlsx_prose(p); }
+        else if (e == "pdf") { fr.kind = "pdf"; fr.text = pdf::extract_pdf(p); }
+        else if (e == "txt" || e == "csv" || e == "md") { fr.kind = "text"; fr.text = extractors::extract_plain(p); }
+        else { fr.kind = "skipped"; fr.text = ""; }
+      } catch (const std::exception& e) {
+        fr.kind = "skipped";
+        fr.text = std::string("（抽出に失敗: ") + e.what() + "）";
+      }
+      results_.push_back(std::move(fr));
+    }
+
+    // 検知は1ファイルごとに行い候補をマージする。全ファイルを連結して1回にかけると、
+    // NER の 250 文字ハードチャンク境界で語が割れて断片候補が出る（かつ結果がファイルの
+    // 読み込み順・組み合わせで変わる）。文書は独立なので跨いで解析する意味も無く、
+    // per-doc は検証済みオラクル（phase2_pipeline）と同じ経路になる。
+    // 集約は「無空白キー×種別」で、単一バンドルにかけたときの集約と揃える。
+    struct Agg { step2::Candidate cand; int best; };  // best = 表示表記を選んだファイルの出現数
+    std::vector<Agg> agg;
+    std::map<std::pair<std::string, std::string>, std::size_t> aidx;
+    for (const auto& fr : results_) {
+      if (fr.text.empty()) continue;
+      for (const auto& c : step2::extract_candidates(*patterns_, *sd_, *ner_, fr.text)) {
+        const auto key = std::make_pair(step2::strip_all_ws(*patterns_, c.text), c.entity_type);
+        auto it = aidx.find(key);
+        if (it == aidx.end()) {
+          aidx[key] = agg.size();
+          agg.push_back({c, c.count});
+        } else {
+          auto& a = agg[it->second];
+          a.cand.count += c.count;
+          // 表示表記は「出現数が多い方、同数なら短い方」（within-file の規則に合わせる）
+          if (c.count > a.best ||
+              (c.count == a.best && utf8::char_len(c.text) < utf8::char_len(a.cand.text))) {
+            a.cand.text = c.text;
+            a.best = c.count;
+          }
+        }
+      }
+    }
+    // 並び順を extract_candidates と揃える（種別順 → 出現数降順 → 表記昇順）
+    std::map<std::string, int> torder;
+    for (std::size_t i = 0; i < step2::CANDIDATE_ENTITY_TYPES.size(); ++i)
+      torder[step2::CANDIDATE_ENTITY_TYPES[i]] = static_cast<int>(i);
+    last_candidates_.clear();
+    for (auto& a : agg) last_candidates_.push_back(std::move(a.cand));
+    std::sort(last_candidates_.begin(), last_candidates_.end(),
+              [&](const step2::Candidate& x, const step2::Candidate& y) {
+                const int tx = torder.count(x.entity_type) ? torder[x.entity_type] : 99;
+                const int ty = torder.count(y.entity_type) ? torder[y.entity_type] : 99;
+                if (tx != ty) return tx < ty;
+                if (x.count != y.count) return x.count > y.count;
+                return x.text < y.text;
+              });
+
+    // 初期プレビュー = 全候補をマスク対象として各ブロックをハイライト
+    const auto conf = candidates_as_confirmed(last_candidates_);
+
+    json blocks = json::array();
+    for (const auto& fr : results_) {
+      json b;
+      b["source"] = fr.source;
+      b["kind"] = fr.kind;
+      b["text"] = fr.text;
+      b["spans"] = spans_to_json(tokenizer::find_mask_spans(fr.text, conf, sd_.get()));
+      blocks.push_back(b);
+    }
+
+    json out;
+    out["ok"] = true;
+    out["candidates"] = candidates_json(last_candidates_);
+    out["blocks"] = blocks;
+    return out;
+  }
+
+  // ② プレビュー更新（確定リストの opt-out を反映して再ハイライト）。
+  // confirmed: [{text,type}] 返り値: {ok, blocks:[{source, spans}]}
+  json preview(const std::vector<tokenizer::ConfirmedTerm>& confirmed) {
+    if (!ensure_init()) return err_json();
+    json blocks = json::array();
+    for (const auto& fr : results_) {
+      json b;
+      b["source"] = fr.source;
+      b["spans"] = spans_to_json(tokenizer::find_mask_spans(fr.text, confirmed, sd_.get()));
+      blocks.push_back(b);
+    }
+    json out;
+    out["ok"] = true;
+    out["blocks"] = blocks;
+    return out;
+  }
+
+  // ③ サニタイズ。返り値: {ok, sanitized, mapping:[{token,original}], leaks:[...]}
+  json sanitize(const std::vector<tokenizer::ConfirmedTerm>& confirmed, bool reversible) {
+    if (!ensure_init()) return err_json();
+    tokenizer::Tokenizer tok(reversible);
+    const std::string bundle = step5::bundle_blocks(tok, results_, sd_.get());
+    const std::string sanitized = tok.tokenize(bundle, confirmed, sd_.get());
+
+    std::vector<std::string> raw;
+    for (const auto& [v, t] : tok.mapping_ordered()) raw.push_back(v);
+    const auto leaks = tokenizer::safety_gate(sanitized, raw);
+
+    json mapping = json::array();
+    for (const auto& [v, t] : tok.mapping_ordered()) mapping.push_back({{"token", t}, {"original", v}});
+
+    json out;
+    out["ok"] = true;
+    out["sanitized"] = sanitized;
+    out["mapping"] = mapping;         // 可逆時のみ意味を持つ（対応表＝最高機密）
+    out["reversible"] = reversible;
+    out["leaks"] = leaks;             // 空なら安全ゲート通過
+    return out;
+  }
+
+  // ④ 逆置換。text＋対応表[{token,original}] → {ok, restored, leftovers:[...]}
+  json reverse(const std::string& text,
+               const std::vector<std::pair<std::string, std::string>>& token_original) {
+    tokenizer::Tokenizer tok;  // 可逆版（既定）
+    std::vector<std::pair<std::string, std::string>> value_token;
+    for (const auto& [token, original] : token_original) value_token.emplace_back(original, token);
+    tok.load_mapping(value_token);
+    const std::string restored = tok.reverse(text);
+    const auto left = tokenizer::find_unreplaced_tokens(restored);
+    json out;
+    out["ok"] = true;
+    out["restored"] = restored;
+    out["leftovers"] = left;
+    return out;
+  }
+
+ private:
+  json err_json() {
+    json out;
+    out["ok"] = false;
+    out["error"] = err_.empty() ? "初期化に失敗しました" : err_;
+    return out;
+  }
+
+  static std::vector<tokenizer::ConfirmedTerm> candidates_as_confirmed(
+      const std::vector<step2::Candidate>& cands) {
+    std::vector<tokenizer::ConfirmedTerm> conf;
+    conf.reserve(cands.size());
+    for (const auto& c : cands) conf.push_back({c.text, c.entity_type});
+    return conf;
+  }
+
+  static json candidates_json(const std::vector<step2::Candidate>& cands) {
+    json arr = json::array();
+    for (const auto& c : cands)
+      arr.push_back({{"text", c.text}, {"entity_type", c.entity_type}, {"count", c.count}});
+    return arr;
+  }
+
+  std::string data_root_;
+  bool inited_ = false;
+  std::string err_;
+  std::unique_ptr<step2::Patterns> patterns_;
+  std::unique_ptr<sudachi::Analyzer> sd_;
+  std::unique_ptr<hf::Ner> ner_;
+  std::vector<step5::FileResult> results_;
+  std::vector<step2::Candidate> last_candidates_;
+};
+
+}  // namespace appcore
