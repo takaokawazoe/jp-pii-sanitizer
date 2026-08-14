@@ -28,9 +28,10 @@ jobs:
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
       - name: fetch third_party (pinned versions)
-        working-directory: cpp/third_party
         run: |
           set -euxo pipefail
+          mkdir -p cpp/third_party
+          cd cpp/third_party
           curl -fsSL -O https://github.com/microsoft/onnxruntime/releases/download/v1.27.0/onnxruntime-linux-x64-1.27.0.tgz
           tar xzf onnxruntime-linux-x64-1.27.0.tgz && mv onnxruntime-linux-x64-1.27.0 onnxruntime
           curl -fsSL -o json.hpp https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp
