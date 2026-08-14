@@ -55,7 +55,7 @@ jobs:
 
       - name: fetch model + dictionary bundle (from Release)
         if: steps.models-cache.outputs.cache-hit != 'true'
-        run: ./cpp/tools/fetch_assets.sh
+        run: bash ./cpp/tools/fetch_assets.sh
 
       - name: build (conformance tests + CLI)
         working-directory: cpp
