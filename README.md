@@ -91,6 +91,8 @@ jp-pii-sanitizer-cli restore --mapping mapping.jsonl -i ai_reply.txt -o final.tx
   The mapping file is your most sensitive artifact — treat it like a password
   and delete it when done.
 
+> Design & implementation notes (why the CLI is shaped this way): [docs/cli.md](docs/cli.md).
+
 ### Build from source
 
 See [cpp/README.md](cpp/README.md). In short: Linux/WSL (for the conformance
@@ -191,6 +193,8 @@ jp-pii-sanitizer-cli restore --mapping mapping.jsonl -i ai_reply.txt -o final.tx
   で編集用の雛形を出力できます。表の出力は件数要約のみで、生の行は AI に渡りません。
 - 対応形式: `.docx .pptx .xlsx .pdf .csv .txt .msg`。全オプションは `--help`。
   対応表ファイルは最も機微な成果物です。パスワードのように扱い、不要になったら削除してください。
+
+> 設計・実装メモ（なぜこの形か）: [docs/cli.md](docs/cli.md)。
 
 ### ソースからのビルド
 

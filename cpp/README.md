@@ -29,6 +29,13 @@ green on both WSL/Linux and Windows/MSVC.**
 Candidate-set equality = the eval result (174/175) by construction. The GUI app
 (`jp-pii-sanitizer.exe`, CMake target `jp_pii_sanitizer`) is these verified cores hosted in WebView2.
 
+There is also a cross-platform CLI — CMake target `jp_pii_sanitizer_cli`, exe
+`jp-pii-sanitizer-cli` — built by the same `cmake --build build`. It reuses the
+library headers directly (no WebView2), so it also builds and runs on
+Linux/macOS. CI builds it and smoke-tests a `detect → mask → restore`
+round-trip, and `package_win.ps1` ships it in the portable ZIP next to the GUI.
+Usage and design/implementation notes: [../docs/cli.md](../docs/cli.md).
+
 ### Prerequisites
 
 **Linux / WSL** (where the conformance tests run):
@@ -186,6 +193,12 @@ WSL/Linux ＋ Windows(MSVC) の両方で green。**
 
 候補一致 = eval 174/175 と同値。GUI アプリ（`jp-pii-sanitizer.exe`・CMake ターゲット `jp_pii_sanitizer`）はこれらの検証済みコアを
 WebView2 に載せたもの。
+
+クロスプラットフォームの **CLI** もある — CMake ターゲット `jp_pii_sanitizer_cli`、exe
+`jp-pii-sanitizer-cli`。同じ `cmake --build build` で生成される。ライブラリヘッダを直接
+再利用し（WebView2 不要）、Linux/macOS でもビルド・実行できる。CI がビルド＋
+`detect → mask → restore` のスモークを回し、`package_win.ps1` がポータブル ZIP に GUI と
+同梱する。使い方・設計/実装メモは [../docs/cli.md](../docs/cli.md)。
 
 ### 必要なもの
 
