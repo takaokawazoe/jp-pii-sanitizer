@@ -90,7 +90,26 @@
 </section>
 <script>
  let seq=1, candidates=[], blocks=[], manual=[], lastSanitized='', lastMapping=[], docBase='output', openedPaths=[];
- const mappingCsv=()=>'token,original\n'+lastMapping.map(x=>x.token+','+x.original).join('\n');
+ // 対応表 CSV は RFC4180 で引用する。原文に , " 改行 が入ると素の連結では壊れ、
+ // 逆置換で実名に戻せなくなる（＝復元不能）。
+ const csvEsc=v=>{ const s=String(v==null?'':v); return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+ const mappingCsv=()=>['token,original'].concat(lastMapping.map(x=>csvEsc(x.token)+','+csvEsc(x.original))).join('\r\n');
+ // 引用符・埋め込み改行に対応した CSV パーサ（貼り付けられた対応表を読む）。
+ function parseCsv(text){
+   const rows=[]; let row=[], f='', q=false;
+   for(let i=0;i<text.length;i++){
+     const c=text[i];
+     if(q){
+       if(c==='"'){ if(text[i+1]==='"'){ f+='"'; i++; } else q=false; }
+       else f+=c;
+     } else if(c==='"'){ q=true; }
+     else if(c===','){ row.push(f); f=''; }
+     else if(c==='\n'||c==='\r'){ if(c==='\r'&&text[i+1]==='\n') i++; row.push(f); rows.push(row); row=[]; f=''; }
+     else f+=c;
+   }
+   if(f!==''||row.length){ row.push(f); rows.push(row); }
+   return rows;
+ }
  const baseName=p=>p.replace(/^.*[\\/]/,'');
  const $=id=>document.getElementById(id);
  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -161,10 +180,21 @@
  function renderPreview(){
    const el=$('preview'); el.innerHTML='<h3>プレビュー（マスクされる箇所）</h3>';
    blocks.forEach(b=>{
-     const lbl=document.createElement('div'); lbl.className='blocklabel'; lbl.textContent='【'+b.source+'】'+(b.kind||'');
+     const lbl=document.createElement('div'); lbl.className='blocklabel';
+     // ファイル名ブロックは束ねの先頭に付いて実際に AI へ送られる。氏名を含みうるので明示する。
+     lbl.textContent = b.kind==='filenames'
+       ? '【ファイル名】（この見出しも AI に送られます）'
+       : '【'+b.source+'】'+(b.kind||'');
+     el.appendChild(lbl);
+     if(b.error){
+       const er=document.createElement('div'); er.className='leak';
+       er.textContent='抽出できませんでした: '+b.error;
+       el.appendChild(er);
+       return;  // 失敗理由は本文に混ぜない（AI 送信テキストにも入らない）
+     }
      const box=document.createElement('div'); box.className='hlbox';
      box.innerHTML=highlight(b.text||'', b.spans||[]);
-     el.appendChild(lbl); el.appendChild(box);
+     el.appendChild(box);
    });
  }
  window.chrome.webview.addEventListener('message', e=>{
@@ -178,13 +208,24 @@
    } else if(m.type==='extract'){
      if(!m.ok){ $('status').textContent='エラー: '+(m.error||'不明'); return; }
      candidates=m.candidates||[]; blocks=m.blocks||[];
-     // 保存時の既定ファイル名の元＝先頭ファイル名（拡張子除く）
-     docBase=(blocks[0]&&blocks[0].source)? blocks[0].source.replace(/\.[^.\/\\]+$/,'') : 'output';
+     // 保存時の既定ファイル名の元＝最初の**ファイル**ブロック（先頭はファイル名ブロック）
+     const first=blocks.find(b=>b.kind!=='filenames');
+     docBase=(first&&first.source)? first.source.replace(/\.[^.\/\\]+$/,'') : 'output';
      renderCands(); renderPreview();
+     if((m.warnings||[]).length)
+       $('status').textContent=$('status').textContent+' ／ ⚠ '+m.warnings.join(' ／ ');
    } else if(m.type==='preview'){
-     if(m.ok){ const map={}; (m.blocks||[]).forEach(b=>map[b.source]=b.spans);
-       blocks.forEach(b=>{ if(map[b.source]) b.spans=map[b.source]; }); renderPreview(); }
+     if(!m.ok){ $('status').textContent='エラー: '+(m.error||'不明'); return; }
+     // **id で突き合わせる。** basename をキーにすると別フォルダの同名ファイルで衝突する。
+     const map={}; (m.blocks||[]).forEach(b=>{ map[b.id]=b.spans; });
+     blocks.forEach(b=>{ if(map[b.id]) b.spans=map[b.id]; });
+     renderPreview();
+   } else if(m.type==='save'){
+     if($('saveMsg')) $('saveMsg').textContent = m.ok ? '保存しました。' : '保存されませんでした（キャンセルまたは失敗）。';
+   } else if(m.type==='reset'){
+     // native 側のクリア完了。UI 側は送信時にクリア済みなので何もしない。
    } else if(m.type==='sanitize'){
+     if(!m.ok){ $('status').textContent='エラー: '+(m.error||'不明'); switchTab('san'); return; }
      lastSanitized=m.sanitized||'';
      lastMapping=(m.reversible && m.mapping)? m.mapping : [];
      let h='<h3>サニタイズ結果</h3>';
@@ -199,6 +240,7 @@
        h+='<textarea rows="8" readonly>'+esc(mappingCsv())+'</textarea>';
      }
      h+='<div class="rowbtns" style="margin-top:12px"><button class="sec" id="back">◀ サニタイズ画面に戻る</button></div>';
+     h+='<div id="saveMsg" style="font-size:12px;color:#666"></div>';
      $('resultBody').innerHTML=h;
      $('dlText').onclick=()=>send({cmd:'saveFile', name:docBase+'_sanitized.txt', content:lastSanitized});
      $('back').onclick=()=>switchTab('san');
@@ -214,6 +256,9 @@
  $('open').onclick=()=>send({cmd:'pickFiles'});   // 選んだファイルを既存に追加（accumulate）
  $('reset').onclick=()=>{
    if(!confirm('読み込んだファイル・候補・手動追記・結果をすべてクリアします。よろしいですか？')) return;
+   // **native にも伝える。** 伝えないと Core が読み込み済み文書を保持したままになり、
+   // 直後に「サニタイズ実行」を押すと消したはずの文書が結果画面に出る。
+   send({cmd:'reset'});
    openedPaths=[]; candidates=[]; blocks=[]; manual=[]; lastSanitized=''; lastMapping=[]; docBase='output';
    renderLoaded(); renderCands(); renderPreview();
    $('resultBody').innerHTML='<p style="color:#666">「▶ サニタイズ実行」を押すと、ここに結果と対応表が表示されます。</p>';
@@ -226,9 +271,16 @@
  $('san').onclick=()=>{ const rev=document.querySelector('input[name=rev]:checked').value==='1';
    send({cmd:'sanitize', confirmed:currentConfirmed(), reversible:rev}); };
  $('rv').onclick=()=>{
-   const rows=$('rvmap').value.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
-   const map=[]; rows.forEach(l=>{ if(/^token\s*,\s*original$/i.test(l))return;
-     const i=l.indexOf(','); if(i>0) map.push({token:l.slice(0,i).trim(), original:l.slice(i+1).trim()}); });
+   const map=[];
+   parseCsv($('rvmap').value).forEach(r=>{
+     if(r.length<2) return;
+     const token=r[0].trim();
+     // 引用無しの旧形式で原文に , が入っていた場合に備え、2列目以降は繋ぎ直す。
+     const original=r.slice(1).join(',').trim();
+     if(!token) return;
+     if(/^token$/i.test(token) && /^original$/i.test(original)) return;  // 見出し行
+     map.push({token:token, original:original});
+   });
    send({cmd:'reverse', text:$('rvtext').value, mapping:map});
  };
 </script>

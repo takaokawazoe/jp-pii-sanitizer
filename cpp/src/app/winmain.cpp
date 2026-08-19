@@ -57,10 +57,15 @@ std::string to_utf8(const std::wstring& w) {
   return s;
 }
 
+// **std::wofstream を使わないこと。** 既定ロケールの codecvt が非 ASCII を落とすため、
+// 「patterns.json が読めません」が「patterns.json」で切れる（実測）。UTF-8 に変換して
+// バイトで書く。
 void log_line(const std::wstring& line) {
   if (g_selftest_log.empty()) return;
-  std::wofstream f(g_selftest_log, std::ios::app);
-  f << line << L"\n";
+  std::ofstream f(g_selftest_log, std::ios::app | std::ios::binary);
+  const std::string u8 = to_utf8(line);
+  f.write(u8.data(), static_cast<std::streamsize>(u8.size()));
+  f.write("\n", 1);
 }
 
 // ---- exe から models/ ディレクトリを解決 ----
@@ -74,10 +79,11 @@ std::string exe_dir() {
 std::string resolve_data_root() {
   const std::string dir = exe_dir();
   // 配布時は exe の隣、開発時は build/ の1つ上（cpp/models）
-  for (const std::string cand : {dir + "/models", dir + "/../models"}) {
-    std::ifstream f(cand + "/patterns.json");
-    if (f.good()) return cand;
-  }
+  // **存在確認に素の std::ifstream を使わないこと。** MSVC はナローパスを ANSI(cp932)
+  // として解釈するので、日本語を含むフォルダ（C:\Users\山田\Desktop\… 等）に置くと
+  // 必ず false になり models を見失う → 起動できない（実測）。
+  for (const std::string cand : {dir + "/models", dir + "/../models"})
+    if (fileio::exists(cand + "/patterns.json")) return cand;
   return dir + "/models";
 }
 
@@ -162,7 +168,21 @@ std::vector<tokenizer::ConfirmedTerm> parse_confirmed(const json& arr) {
   return conf;
 }
 
+/// 配列フィールドを安全に取り出す（欠けていれば空配列）。
+/// 素の `req["key"]` は欠けたキーで null を作り、それを回すと type_error を投げる。
+const json& array_or_empty(const json& req, const char* key) {
+  static const json kEmpty = json::array();
+  const auto it = req.find(key);
+  return (it != req.end() && it->is_array()) ? *it : kEmpty;
+}
+
+void dispatch_command(const json& req, const std::string& cmd, int id);
+
 // ---- JS からのコマンドを処理 ----
+//
+// **ここが最後の例外の受け皿。** この関数は WebView2 の WebMessageReceived コールバック
+// （COM）から呼ばれるので、例外を抜けさせると terminate してアプリごと落ちる（実測: 0xC0000409）。
+// 何があっても JS にエラーを返して生き延びる。
 void handle_command(const std::string& raw) {
   json req;
   try {
@@ -172,6 +192,26 @@ void handle_command(const std::string& raw) {
   }
   const std::string cmd = req.value("cmd", std::string());
   const auto id = req.value("id", 0);
+  try {
+    dispatch_command(req, cmd, id);
+  } catch (const std::exception& e) {
+    json resp;
+    resp["id"] = id;
+    resp["type"] = cmd.empty() ? std::string("error") : cmd;
+    resp["ok"] = false;
+    resp["error"] = std::string("処理中にエラーが発生しました: ") + e.what();
+    post_json(resp);
+  } catch (...) {
+    json resp;
+    resp["id"] = id;
+    resp["type"] = "error";
+    resp["ok"] = false;
+    resp["error"] = "処理中に不明なエラーが発生しました";
+    post_json(resp);
+  }
+}
+
+void dispatch_command(const json& req, const std::string& cmd, int id) {
   json resp;
   resp["id"] = id;
 
@@ -188,25 +228,35 @@ void handle_command(const std::string& raw) {
     post_json(r);
   } else if (cmd == "extractPaths") {
     std::vector<std::string> paths;
-    for (const auto& p : req["paths"]) paths.push_back(p.get<std::string>());
+    for (const auto& p : array_or_empty(req, "paths"))
+      if (p.is_string()) paths.push_back(p.get<std::string>());
     auto r = g_core->extract(paths);
     r["id"] = id; r["type"] = "extract";
     post_json(r);
   } else if (cmd == "preview") {
-    auto r = g_core->preview(parse_confirmed(req["confirmed"]));
+    auto r = g_core->preview(parse_confirmed(array_or_empty(req, "confirmed")));
     r["id"] = id; r["type"] = "preview";
     post_json(r);
   } else if (cmd == "sanitize") {
-    auto r = g_core->sanitize(parse_confirmed(req["confirmed"]), req.value("reversible", true));
+    auto r = g_core->sanitize(parse_confirmed(array_or_empty(req, "confirmed")),
+                              req.value("reversible", true));
     r["id"] = id; r["type"] = "sanitize";
     post_json(r);
   } else if (cmd == "reverse") {
     std::vector<std::pair<std::string, std::string>> map;
-    for (const auto& m : req["mapping"])
-      map.emplace_back(m.value("token", std::string()), m.value("original", std::string()));
+    for (const auto& m : array_or_empty(req, "mapping"))
+      if (m.is_object())
+        map.emplace_back(m.value("token", std::string()), m.value("original", std::string()));
     auto r = g_core->reverse(req.value("text", std::string()), map);
     r["id"] = id; r["type"] = "reverse";
     post_json(r);
+  } else if (cmd == "reset") {
+    // 画面のリセットを native にも伝える。伝えないと Core の results_ が残り、
+    // 直後に「サニタイズ実行」で消したはずの文書が結果画面に出てしまう。
+    g_core->clear();
+    resp["type"] = "reset";
+    resp["ok"] = true;
+    post_json(resp);
   } else if (cmd == "saveFile") {
     const std::string name = req.value("name", std::string("output.txt"));
     const std::string content = req.value("content", std::string());

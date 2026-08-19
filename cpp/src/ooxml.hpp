@@ -11,8 +11,11 @@
 #include <string>
 #include <vector>
 
+#include <cctype>
+
 #include "extractors.hpp"  // strip_ruby / trim / Table / rows_to_prose 相当
 #include "miniz.h"
+#include "numparse.hpp"
 #include "pugixml.hpp"
 
 namespace ooxml {
@@ -147,8 +150,12 @@ inline std::string extract_pptx(const std::string& path) {
     if (e.rfind("ppt/slides/slide", 0) == 0 && e.size() > 4 &&
         e.compare(e.size() - 4, 4, ".xml") == 0) {
       const std::string num = e.substr(16, e.size() - 20);  // "ppt/slides/slide{N}.xml"
-      if (!num.empty() && std::all_of(num.begin(), num.end(), ::isdigit))
-        slides.emplace_back(std::stoi(num), e);
+      // 桁あふれ（"999999999999.xml" 等）で std::stoi が例外を投げないよう numparse を通す。
+      // ::isdigit は負の char で UB になるので unsigned で渡す。
+      const bool digits = !num.empty() && std::all_of(num.begin(), num.end(), [](char ch) {
+        return std::isdigit(static_cast<unsigned char>(ch)) != 0;
+      });
+      if (digits) slides.emplace_back(numparse::to_int(num, 0), e);
     }
   }
   std::sort(slides.begin(), slides.end());

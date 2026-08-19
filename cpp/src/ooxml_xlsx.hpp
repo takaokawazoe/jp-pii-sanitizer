@@ -12,9 +12,19 @@
 #include <vector>
 
 #include "miniz.h"
+#include "numparse.hpp"
 #include "pugixml.hpp"
 
 namespace ooxml {
+
+/// `<row>` の子がセル要素 `<c>` か。名前空間接頭辞（"x:c" 等）は落として比べる。
+///
+/// **`name.find("c") != npos` で判定してはいけない。** 'c' を含む別の要素
+/// （拡張の <extLst> 配下など）まで通ってしまう。ここは完全一致で見る。
+inline bool is_cell_node(const std::string& name) {
+  const auto colon = name.find_last_of(':');
+  return (colon == std::string::npos ? name : name.substr(colon + 1)) == "c";
+}
 
 /// セル参照 "AB12" の列部分を 0始まりの列番号に（A=0, Z=25, AA=26…）。
 inline int col_of(const std::string& ref) {
@@ -128,13 +138,13 @@ inline std::vector<std::vector<std::string>> sheet_rows(const std::string& xml,
     if (rnum <= 0) rnum = seq;
     std::map<int, std::string> cells;
     for (const auto& c : rownode.node().children()) {
-      if (std::string(c.name()).find("c") == std::string::npos) continue;
+      if (!is_cell_node(c.name())) continue;
       const std::string ref = c.attribute("r").value();
       const std::string type = c.attribute("t").value();
       std::string val;
       if (type == "s") {
         const auto v = c.child("v").text().get();
-        const int idx = v[0] ? std::stoi(v) : -1;
+        const int idx = numparse::to_int(v, -1);  // 壊れた <v> でも例外を投げない
         if (idx >= 0 && idx < static_cast<int>(shared.size())) val = shared[idx];
       } else if (type == "inlineStr") {
         for (const auto& t : c.select_nodes(".//*[local-name()='t']"))
@@ -181,13 +191,13 @@ inline std::string sheet_prose(const std::string& xml, const std::vector<std::st
     // (列番号, 値) を集める。結合セルは左上のみ値を持つので自然に扱える。
     std::vector<std::pair<int, std::string>> cells;
     for (const auto& c : rownode.node().children()) {
-      if (std::string(c.name()).find("c") == std::string::npos) continue;
+      if (!is_cell_node(c.name())) continue;
       const std::string ref = c.attribute("r").value();
       const std::string type = c.attribute("t").value();
       std::string val;
       if (type == "s") {  // sharedStrings のインデックス
         const auto v = c.child("v").text().get();
-        const int idx = v[0] ? std::stoi(v) : -1;
+        const int idx = numparse::to_int(v, -1);  // 壊れた <v> でも例外を投げない
         if (idx >= 0 && idx < static_cast<int>(shared.size())) val = shared[idx];
       } else if (type == "inlineStr") {
         for (const auto& t : c.select_nodes(".//*[local-name()='t']"))

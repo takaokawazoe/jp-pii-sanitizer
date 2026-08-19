@@ -62,7 +62,11 @@ class Analyzer {
   std::vector<Morpheme> tokenize(const std::string& text, int mode = 2) {
     SudachiResultC res{};
     if (sudachi_tokenize(h_, text.c_str(), mode, &res) != 0) {
-      throw std::runtime_error("sudachi_tokenize に失敗: " + text);
+      // **本文を例外メッセージに載せないこと。** ここは PII サニタイザなので、
+      // このメッセージは UI のエラー表示やログファイルに出る＝マスク前の生テキストが
+      // そのまま外へ出る。長さだけ添えて原因追跡に足りるようにする。
+      throw std::runtime_error("sudachi_tokenize に失敗（入力 " + std::to_string(text.size()) +
+                               " バイト・不正な UTF-8 の可能性）");
     }
     std::vector<Morpheme> out;
     out.reserve(res.len);

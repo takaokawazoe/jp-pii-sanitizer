@@ -14,7 +14,9 @@
 
 #include <onnxruntime_cxx_api.h>
 
+#include "file_io.hpp"
 #include "json.hpp"
+#include "numparse.hpp"
 #include "ort_path.hpp"
 #include "tokenizer_shim.hpp"
 #include "utf8.hpp"
@@ -42,11 +44,14 @@ class Ner {
       const std::string& labels_json, std::map<std::string, std::string> label_map)
       : tk_(tokenizer_json), label_map_(std::move(label_map)), env_(ORT_LOGGING_LEVEL_FATAL, "hf") {
     {
-      std::ifstream f(labels_json);
-      nlohmann::json j;
-      f >> j;
+      // **素の std::ifstream を使わないこと。** MSVC はナローパスを ANSI(cp932) として
+      // 解釈するので、日本語を含むフォルダ（配布 ZIP をデスクトップに展開した等）で
+      // labels.json が開けず初期化が落ちる。fileio::read_all はワイド版で開く。
+      const std::string body = fileio::read_all(labels_json);
+      if (body.empty()) throw std::runtime_error("labels.json が読めません: " + labels_json);
+      const nlohmann::json j = nlohmann::json::parse(body);
       for (auto it = j.begin(); it != j.end(); ++it)
-        id2label_[std::stoi(it.key())] = it.value().get<std::string>();
+        id2label_[numparse::to_int(it.key(), -1)] = it.value().get<std::string>();
     }
     // fp16 は ORT_ENABLE_ALL だと SimplifiedLayerNormFusion と衝突してロードできない。
     // 通る戦略を上から探す（cpp/README.md「実測メモ」）。

@@ -22,7 +22,8 @@ rule-based recognizers.
 
 1. **Load** one or more files (`.docx`, `.pptx`, `.xlsx`, `.pdf`, `.csv`, `.txt`).
 2. **Detect** candidate PII — person names, organizations, addresses, e-mail
-   addresses, phone numbers, postal codes.
+   addresses, phone numbers, postal codes. **File names are scanned too**, because
+   they are included in the bundled text (`社員名簿_山田太郎_確認用.csv` leaks a name).
 3. **Confirm** (opt-out): everything is masked by default; you only *uncheck*
    what should stay, and can *manually add* anything the detector missed.
 4. **Sanitize** — replace detected PII with placeholders and download the result.
@@ -39,6 +40,10 @@ sanitizer uses), so the preview and the result always agree.
 - Detection uses `tsmatz/xlm-roberta-ner-japanese` (MIT) exported to ONNX (fp16),
   plus PCRE2 recognizers and Sudachi morphology.
 - **Opt-out, not opt-in.** Over-masking is safe; under-masking is dangerous.
+- **No silent "nothing found".** Plain text is decoded as UTF-8, then cp932
+  (Shift_JIS — the usual encoding of Japanese business CSV/TXT). Whatever reaches
+  the detector is guaranteed valid UTF-8, and an encoding error is reported rather
+  than degrading into a clean-looking zero-hit scan.
 
 ### Download and run (Windows 11+)
 
@@ -133,6 +138,7 @@ All sample and test data is synthetic — no real personal information is includ
 
 1. **読み込み**: 1つ以上のファイル（`.docx` / `.pptx` / `.xlsx` / `.pdf` / `.csv` / `.txt`）。
 2. **検出**: 人名・組織名・住所・メールアドレス・電話番号・郵便番号の候補。
+   **ファイル名も検出対象**です（束ねたテキストに載るため。`社員名簿_山田太郎_確認用.csv` は氏名の漏洩になります）。
 3. **確定（opt-out）**: 既定は全マスク。残すものだけ*チェックを外し*、検出漏れは*手動で追記*できます。
 4. **サニタイズ**: 検出した PII をプレースホルダに置換して結果をダウンロード。
    - *可逆*: `{{PERSON_1}}` ＋ 対応表 CSV（厳重管理）。
@@ -148,6 +154,10 @@ All sample and test data is synthetic — no real personal information is includ
 - 検知は `tsmatz/xlm-roberta-ner-japanese`（MIT）を ONNX(fp16) 化
   したもの＋ PCRE2 認識器＋ Sudachi 形態素。
 - **opt-in ではなく opt-out。** 過剰マスクは安全側、取りこぼしは危険側。
+- **「0件」を黙って返さない。** 平文は UTF-8 →
+  cp932（Shift_JIS。日本語の業務 CSV/TXT は普通にこれ）の順に復号します。検知器に渡る
+  テキストは正当な UTF-8 であることを保証し、文字コードの異常は「検出0件」に化けさせず
+  エラーとして報告します。
 
 ### ダウンロードと実行（Windows 11 以降）
 

@@ -48,19 +48,38 @@ class Regex {
   Regex& operator=(const Regex&) = delete;
 
   /// Python の re.finditer 相当（重複しない左から順のマッチ）。
+  ///
+  /// **「マッチ無し」と「照合エラー」を必ず分ける。** 以前は `rc < 0` を一括で break して
+  /// いたため、subject が不正な UTF-8 だと PCRE2_ERROR_UTF8_ERR* が「0件」に化けた。
+  /// PII サニタイザでこれは fail-open（検知ゼロ＝安全に見える）なので、エラーは投げる。
+  /// 正当な UTF-8 は utf8::repair で保証しているので、ここに来たら本当にバグ。
   std::vector<Match> finditer(const std::string& subject) const {
     std::vector<Match> out;
     pcre2_match_data* md = pcre2_match_data_create_from_pattern(code_, nullptr);
     PCRE2_SIZE start = 0;
     while (start <= subject.size()) {
-      const int rc = pcre2_match(code_, reinterpret_cast<PCRE2_SPTR>(subject.c_str()),
+      const int rc = pcre2_match(code_, reinterpret_cast<PCRE2_SPTR>(subject.data()),
                                  subject.size(), start, 0, md, nullptr);
-      if (rc < 0) break;  // PCRE2_ERROR_NOMATCH 等
+      if (rc == PCRE2_ERROR_NOMATCH) break;
+      if (rc < 0) {
+        PCRE2_UCHAR buf[256];
+        pcre2_get_error_message(rc, buf, sizeof(buf));
+        pcre2_match_data_free(md);
+        throw std::runtime_error(std::string("pcre2_match 失敗: ") +
+                                 reinterpret_cast<char*>(buf) + "  /  " + pattern_);
+      }
       const PCRE2_SIZE* ov = pcre2_get_ovector_pointer(md);
       const std::size_t b = ov[0], e = ov[1];
       out.push_back({b, e, subject.substr(b, e - b)});
-      // 空マッチで無限ループしないように1つ進める
-      start = (e > b) ? e : e + 1;
+      // 空マッチで無限ループしないように1つ進める。**バイトでなく1コードポイント**進める
+      // こと。多バイト文字の途中から再開すると PCRE2_ERROR_BADUTFOFFSET になる。
+      if (e > b) {
+        start = e;
+      } else {
+        std::size_t k = e + 1;
+        while (k < subject.size() && (static_cast<unsigned char>(subject[k]) & 0xC0) == 0x80) ++k;
+        start = k;
+      }
     }
     pcre2_match_data_free(md);
     return out;

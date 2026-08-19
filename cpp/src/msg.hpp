@@ -14,6 +14,7 @@
 
 #include "aspose/email/foss/msg/mapi_message.hpp"
 #include "extractors.hpp"  // strip_ruby / dewrap_prose
+#include "numparse.hpp"
 #include "re.hpp"
 #include "utf8.hpp"
 
@@ -55,16 +56,24 @@ inline std::string b64_decode(const std::string& in) {
   return out;
 }
 
+inline bool is_hex_digit(char c) {
+  const unsigned char u = static_cast<unsigned char>(c);
+  return (u >= '0' && u <= '9') || (u >= 'A' && u <= 'F') || (u >= 'a' && u <= 'f');
+}
+
 inline std::string q_decode(const std::string& in) {
   std::string out;
   for (std::size_t i = 0; i < in.size(); ++i) {
     if (in[i] == '_') {
       out += ' ';
-    } else if (in[i] == '=' && i + 2 < in.size()) {
-      out += static_cast<char>(std::stoi(in.substr(i + 1, 2), nullptr, 16));
+    } else if (in[i] == '=' && i + 2 < in.size() && is_hex_digit(in[i + 1]) &&
+               is_hex_digit(in[i + 2])) {
+      // 16進2桁であることを確かめてから変換する。壊れたヘッダの "=ZZ" で std::stoi が
+      // invalid_argument を投げると、上位に受け皿が無い経路ではプロセスごと落ちる。
+      out += static_cast<char>(numparse::to_int_hex(in.substr(i + 1, 2), 0));
       i += 2;
     } else {
-      out += in[i];
+      out += in[i];  // 不正な "=" は quopri と同じくそのまま残す
     }
   }
   return out;

@@ -11,14 +11,81 @@
 
 namespace utf8 {
 
+/// 置換文字 U+FFFD。不正バイトを潰すときの受け皿。
+inline constexpr const char* REPLACEMENT = "\xEF\xBF\xBD";
+
+/// `s[i]` から始まる**正当な** UTF-8 列の長さ (1..4)。不正なら 0。
+///
+/// 「先頭バイトから長さを決めて足す」だけでは足りない。**過長符号化・サロゲート・
+/// U+10FFFF 超・途中で切れた列**はいずれも不正で、PCRE2(PCRE2_UTF) と Rust の
+/// `CStr::to_str()` はこれらを拒否する。ここを緩く見ると、下流でだけ失敗する
+/// （＝regex が黙って0件、Rust シムが例外）ことになるので同じ厳しさで判定する。
+inline std::size_t valid_seq_len(const std::string& s, std::size_t i) {
+  const std::size_t n = s.size();
+  if (i >= n) return 0;
+  const auto b = [&](std::size_t k) { return static_cast<unsigned char>(s[k]); };
+  const unsigned char c = b(i);
+  const auto cont = [&](std::size_t k) { return k < n && (b(k) & 0xC0) == 0x80; };
+  if (c < 0x80) return 1;
+  if (c < 0xC2) return 0;                       // 0x80-0xBF=継続バイト単独 / 0xC0,0xC1=過長
+  if (c < 0xE0) return cont(i + 1) ? 2 : 0;
+  if (c < 0xF0) {                               // 3バイト: 過長(E0 80..9F)・サロゲート(ED A0..BF)
+    if (!cont(i + 1) || !cont(i + 2)) return 0;
+    if (c == 0xE0 && b(i + 1) < 0xA0) return 0;
+    if (c == 0xED && b(i + 1) >= 0xA0) return 0;
+    return 3;
+  }
+  if (c < 0xF5) {                               // 4バイト: 過長(F0 80..8F)・上限超(F4 90..)
+    if (!cont(i + 1) || !cont(i + 2) || !cont(i + 3)) return 0;
+    if (c == 0xF0 && b(i + 1) < 0x90) return 0;
+    if (c == 0xF4 && b(i + 1) >= 0x90) return 0;
+    return 4;
+  }
+  return 0;                                     // 0xF5-0xFF は UTF-8 に存在しない
+}
+
+/// 文字列全体が正当な UTF-8 か。
+inline bool is_valid(const std::string& s) {
+  for (std::size_t i = 0; i < s.size();) {
+    const std::size_t k = valid_seq_len(s, i);
+    if (k == 0) return false;
+    i += k;
+  }
+  return true;
+}
+
+/// 不正なバイトを U+FFFD に置き換え、**必ず正当な UTF-8** にして返す。
+///
+/// テキスト化の出口（core/CLI の `fr.text` 確定時点）で通す。入口の復号だけでは
+/// PDF 由来の孤立サロゲートや壊れた OOXML を拾えないため、ここが最後の関門になる。
+inline std::string repair(const std::string& s) {
+  if (is_valid(s)) return s;
+  std::string out;
+  out.reserve(s.size());
+  for (std::size_t i = 0; i < s.size();) {
+    const std::size_t k = valid_seq_len(s, i);
+    if (k == 0) {
+      out += REPLACEMENT;
+      ++i;  // 不正バイトは1バイトずつ捨てる（同期を早く回復させる）
+    } else {
+      out.append(s, i, k);
+      i += k;
+    }
+  }
+  return out;
+}
+
 /// UTF-8 文字列の「コードポイント境界のバイト位置」表。長さ (文字数+1)。
+///
+/// 不正バイトは1バイト＝1文字として数える（repair 済みなら発生しない）。こうしないと
+/// 境界表が s.size() を飛び越え、下流の slice が別の文字の途中を指す。
 inline std::vector<std::size_t> char_offsets(const std::string& s) {
   std::vector<std::size_t> off;
   off.reserve(s.size() + 1);
   for (std::size_t i = 0; i < s.size();) {
     off.push_back(i);
-    const unsigned char c = static_cast<unsigned char>(s[i]);
-    i += (c < 0x80) ? 1 : (c < 0xE0) ? 2 : (c < 0xF0) ? 3 : 4;
+    const std::size_t k = valid_seq_len(s, i);
+    i += (k == 0) ? 1 : k;
   }
   off.push_back(s.size());
   return off;

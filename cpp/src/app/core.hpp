@@ -14,6 +14,7 @@
 #include <cctype>
 #include <map>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -117,11 +118,26 @@ class Core {
         else if (e == "xlsx") { fr.kind = "xlsx-prose"; fr.text = ooxml::read_xlsx_prose(p); }
         else if (e == "pdf") { fr.kind = "pdf"; fr.text = pdf::extract_pdf(p); }
         else if (e == "txt" || e == "csv" || e == "md") { fr.kind = "text"; fr.text = extractors::extract_plain(p); }
-        else { fr.kind = "skipped"; fr.text = ""; }
+        else {
+          // 未対応拡張子は**理由を出す**。以前は無言で空ブロックになり、利用者からは
+          // 「読み込んだのに何も出ない」としか見えなかった（.msg/.eml は CLI のみ対応）。
+          fr.kind = "skipped";
+          fr.text = "";
+          fr.error = e.empty() ? "拡張子が判別できません" : ("未対応の形式です: ." + e);
+        }
       } catch (const std::exception& e) {
         fr.kind = "skipped";
-        fr.text = std::string("（抽出に失敗: ") + e.what() + "）";
+        fr.text.clear();
+        // **失敗理由を text に入れないこと。** text は bundle_blocks でそのまま
+        // AI 送信テキストへ束ねられるので、例外メッセージ（＝生テキストを含みうる）が
+        // 本文に紛れ込む。表示用に error へ分ける。
+        fr.error = e.what();
       }
+      // ---- テキスト化の出口: ここから下流は「正当な UTF-8」を前提にしてよい ----
+      // 入口の復号（extractors::decode_text_bytes）だけでは足りない。PDF の孤立サロゲート
+      // （CESU-8 になる）や壊れた OOXML は復号を通らずここへ来る。不正なまま流すと
+      // PCRE2 が黙って0件を返し（fail-open）、Rust シムは例外を投げてプロセスが落ちる。
+      fr.text = utf8::repair(fr.text);
       results_.push_back(std::move(fr));
     }
 
@@ -133,9 +149,35 @@ class Core {
     struct Agg { step2::Candidate cand; int best; };  // best = 表示表記を選んだファイルの出現数
     std::vector<Agg> agg;
     std::map<std::pair<std::string, std::string>, std::size_t> aidx;
-    for (const auto& fr : results_) {
-      if (fr.text.empty()) continue;
-      for (const auto& c : step2::extract_candidates(*patterns_, *sd_, *ner_, fr.text)) {
+    std::vector<std::string> warnings;
+
+    // 検知に掛けるテキスト: 各ファイルの本文 ＋ **ファイル名**。
+    // ファイル名を入れるのは、束ね（bundle_blocks）が【ファイル名】ブロックと
+    // 複数ファイル時の【source】見出しで**ファイル名を AI 送信テキストに載せる**ため。
+    // ここで候補にしないと「社員名簿_山田太郎_確認用.csv」の氏名が素通りする。
+    std::string names;  // targets が指すので寿命をループの外に置く
+    {
+      std::set<std::string> seen;
+      for (const auto& fr : results_)
+        if (!fr.source.empty() && seen.insert(fr.source).second) names += fr.source + "\n";
+    }
+    // 本文はコピーせず参照で回す（PDF 等で数MBになるため）
+    std::vector<std::pair<std::string, const std::string*>> targets;  // (表示名, テキスト)
+    for (const auto& fr : results_)
+      if (!fr.text.empty()) targets.emplace_back(fr.source, &fr.text);
+    if (!names.empty()) targets.emplace_back("（ファイル名）", &names);
+
+    for (const auto& [label, text] : targets) {
+      std::vector<step2::Candidate> cands;
+      try {
+        cands = step2::extract_candidates(*patterns_, *sd_, *ner_, *text);
+      } catch (const std::exception& e) {
+        // 1本の失敗で全体を落とさない（以前はここが無防備で、Shift_JIS の CSV が
+        // 混ざるだけでプロセスごと死に、読み込み済みの他ファイルの作業も消えた）。
+        warnings.push_back(label + ": 検知に失敗しました（" + e.what() + "）");
+        continue;
+      }
+      for (const auto& c : cands) {
         const auto key = std::make_pair(step2::strip_all_ws(*patterns_, c.text), c.entity_type);
         auto it = aidx.find(key);
         if (it == aidx.end()) {
@@ -171,20 +213,15 @@ class Core {
     // 初期プレビュー = 全候補をマスク対象として各ブロックをハイライト
     const auto conf = candidates_as_confirmed(last_candidates_);
 
-    json blocks = json::array();
-    for (const auto& fr : results_) {
-      json b;
-      b["source"] = fr.source;
-      b["kind"] = fr.kind;
-      b["text"] = fr.text;
-      b["spans"] = spans_to_json(tokenizer::find_mask_spans(fr.text, conf, sd_.get()));
-      blocks.push_back(b);
-    }
-
     json out;
     out["ok"] = true;
     out["candidates"] = candidates_json(last_candidates_);
-    out["blocks"] = blocks;
+    try {
+      out["blocks"] = blocks_json(conf, true);
+    } catch (const std::exception& e) {
+      return fail_json(std::string("プレビューの生成に失敗しました: ") + e.what());
+    }
+    out["warnings"] = warnings;
     return out;
   }
 
@@ -192,56 +229,73 @@ class Core {
   // confirmed: [{text,type}] 返り値: {ok, blocks:[{source, spans}]}
   json preview(const std::vector<tokenizer::ConfirmedTerm>& confirmed) {
     if (!ensure_init()) return err_json();
-    json blocks = json::array();
-    for (const auto& fr : results_) {
-      json b;
-      b["source"] = fr.source;
-      b["spans"] = spans_to_json(tokenizer::find_mask_spans(fr.text, confirmed, sd_.get()));
-      blocks.push_back(b);
+    try {
+      json out;
+      out["ok"] = true;
+      out["blocks"] = blocks_json(confirmed, false);
+      return out;
+    } catch (const std::exception& e) {
+      return fail_json(std::string("プレビューの更新に失敗しました: ") + e.what());
     }
-    json out;
-    out["ok"] = true;
-    out["blocks"] = blocks;
-    return out;
   }
 
   // ③ サニタイズ。返り値: {ok, sanitized, mapping:[{token,original}], leaks:[...]}
   json sanitize(const std::vector<tokenizer::ConfirmedTerm>& confirmed, bool reversible) {
     if (!ensure_init()) return err_json();
-    tokenizer::Tokenizer tok(reversible);
-    const std::string bundle = step5::bundle_blocks(tok, results_, sd_.get());
-    const std::string sanitized = tok.tokenize(bundle, confirmed, sd_.get());
+    // リセット後や読み込み前に実行されたら、古い results_ で束ねない。
+    // （以前は空チェックが無く、UI の「リセット」が native に伝わらないため、
+    //   消したはずの文書がほぼ素のまま結果画面に出ていた）
+    if (results_.empty()) return fail_json("読み込まれたファイルがありません。");
+    try {
+      tokenizer::Tokenizer tok(reversible);
+      const std::string bundle = step5::bundle_blocks(tok, results_, sd_.get());
+      const std::string sanitized = tok.tokenize(bundle, confirmed, sd_.get());
 
-    std::vector<std::string> raw;
-    for (const auto& [v, t] : tok.mapping_ordered()) raw.push_back(v);
-    const auto leaks = tokenizer::safety_gate(sanitized, raw);
+      std::vector<std::string> raw;
+      for (const auto& [v, t] : tok.mapping_ordered()) raw.push_back(v);
+      const auto leaks = tokenizer::safety_gate(sanitized, raw);
 
-    json mapping = json::array();
-    for (const auto& [v, t] : tok.mapping_ordered()) mapping.push_back({{"token", t}, {"original", v}});
+      json mapping = json::array();
+      for (const auto& [v, t] : tok.mapping_ordered())
+        mapping.push_back({{"token", t}, {"original", v}});
 
-    json out;
-    out["ok"] = true;
-    out["sanitized"] = sanitized;
-    out["mapping"] = mapping;         // 可逆時のみ意味を持つ（対応表＝最高機密）
-    out["reversible"] = reversible;
-    out["leaks"] = leaks;             // 空なら安全ゲート通過
-    return out;
+      json out;
+      out["ok"] = true;
+      out["sanitized"] = sanitized;
+      out["mapping"] = mapping;         // 可逆時のみ意味を持つ（対応表＝最高機密）
+      out["reversible"] = reversible;
+      out["leaks"] = leaks;             // 空なら安全ゲート通過
+      return out;
+    } catch (const std::exception& e) {
+      return fail_json(std::string("サニタイズに失敗しました: ") + e.what());
+    }
   }
 
   // ④ 逆置換。text＋対応表[{token,original}] → {ok, restored, leftovers:[...]}
   json reverse(const std::string& text,
                const std::vector<std::pair<std::string, std::string>>& token_original) {
-    tokenizer::Tokenizer tok;  // 可逆版（既定）
-    std::vector<std::pair<std::string, std::string>> value_token;
-    for (const auto& [token, original] : token_original) value_token.emplace_back(original, token);
-    tok.load_mapping(value_token);
-    const std::string restored = tok.reverse(text);
-    const auto left = tokenizer::find_unreplaced_tokens(restored);
-    json out;
-    out["ok"] = true;
-    out["restored"] = restored;
-    out["leftovers"] = left;
-    return out;
+    try {
+      tokenizer::Tokenizer tok;  // 可逆版（既定）
+      std::vector<std::pair<std::string, std::string>> value_token;
+      for (const auto& [token, original] : token_original)
+        value_token.emplace_back(original, token);
+      tok.load_mapping(value_token);
+      const std::string restored = tok.reverse(utf8::repair(text));
+      const auto left = tokenizer::find_unreplaced_tokens(restored);
+      json out;
+      out["ok"] = true;
+      out["restored"] = restored;
+      out["leftovers"] = left;
+      return out;
+    } catch (const std::exception& e) {
+      return fail_json(std::string("逆置換に失敗しました: ") + e.what());
+    }
+  }
+
+  /// 画面の「リセット」。読み込み済みの文書・候補を native 側からも消す。
+  void clear() {
+    results_.clear();
+    last_candidates_.clear();
   }
 
  private:
@@ -250,6 +304,45 @@ class Core {
     out["ok"] = false;
     out["error"] = err_.empty() ? "初期化に失敗しました" : err_;
     return out;
+  }
+
+  static json fail_json(const std::string& message) {
+    json out;
+    out["ok"] = false;
+    out["error"] = message;
+    return out;
+  }
+
+  /// 検知・プレビューで返すブロック一覧。
+  ///
+  /// 先頭は【ファイル名】ブロック（束ねが実際に AI へ送るのと同じ本文）。ここを出さないと
+  /// 「送られる文面」がプレビューと食い違い、ファイル名の氏名を利用者が確認できない。
+  /// `id` は results_ の位置に固定する。**source（basename）をキーにしてはいけない**——
+  /// 別フォルダの同名ファイルを2本読むと衝突してハイライトが取り違わる。
+  json blocks_json(const std::vector<tokenizer::ConfirmedTerm>& conf, bool with_text) {
+    json blocks = json::array();
+    const std::string names = step5::filenames_block(results_);
+    if (!names.empty()) {
+      json b;
+      b["id"] = "names";
+      b["source"] = "（ファイル名）";
+      b["kind"] = "filenames";
+      if (with_text) b["text"] = names;
+      b["spans"] = spans_to_json(tokenizer::find_mask_spans(names, conf, sd_.get()));
+      blocks.push_back(b);
+    }
+    for (std::size_t i = 0; i < results_.size(); ++i) {
+      const auto& fr = results_[i];
+      json b;
+      b["id"] = "f" + std::to_string(i);
+      b["source"] = fr.source;
+      b["kind"] = fr.kind;
+      if (!fr.error.empty()) b["error"] = fr.error;
+      if (with_text) b["text"] = fr.text;
+      b["spans"] = spans_to_json(tokenizer::find_mask_spans(fr.text, conf, sd_.get()));
+      blocks.push_back(b);
+    }
+    return blocks;
   }
 
   static std::vector<tokenizer::ConfirmedTerm> candidates_as_confirmed(

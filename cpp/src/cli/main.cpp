@@ -20,6 +20,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -39,6 +40,7 @@
 #include "hf_ner.hpp"
 #include "json.hpp"
 #include "msg.hpp"
+#include "numparse.hpp"
 #include "ooxml.hpp"
 #include "pdf.hpp"
 #include "step2.hpp"
@@ -99,10 +101,9 @@ std::string exe_dir() {
 #endif
 }
 
-bool file_exists(const std::string& p) {
-  std::ifstream f(p);
-  return f.good();
-}
+// **素の std::ifstream で存在確認しないこと。** MSVC はナローパスを ANSI(cp932) と
+// して解釈するため、日本語を含むパスで必ず false になる。fileio はワイド版で開く。
+bool file_exists(const std::string& p) { return fileio::exists(p); }
 
 // models ディレクトリ: --data > <exe_dir>/models > ./models
 std::string resolve_data_root(const std::string& override_dir) {
@@ -178,8 +179,14 @@ step5::FileResult ingest(const std::string& path) {
     else { fr.kind = "skipped"; fr.text = ""; }
   } catch (const std::exception& ex) {
     fr.kind = "skipped";
-    fr.text = std::string("（抽出に失敗: ") + ex.what() + "）";
+    fr.text.clear();
+    // **失敗理由を text に入れない。** text は bundle_blocks でそのまま出力へ束ねられるので、
+    // 例外メッセージ（生テキストを含みうる）がマスク済みの本文に紛れ込む。
+    fr.error = ex.what();
   }
+  // テキスト化の出口で UTF-8 を保証する。入口の復号だけでは PDF の孤立サロゲートや
+  // 壊れた OOXML を拾えず、下流で PCRE2 が黙って0件を返し Rust シムが例外を投げる。
+  fr.text = utf8::repair(fr.text);
   return fr;
 }
 
@@ -203,7 +210,7 @@ std::vector<std::string> resolve_cols(const std::vector<std::string>& headers,
   std::vector<std::string> out;
   for (const auto& s : specs) {
     if (all_digits(s)) {
-      const int idx = std::stoi(s) - 1;
+      const int idx = numparse::to_int(s, 0) - 1;  // 桁あふれで例外を投げない
       if (idx >= 0 && idx < static_cast<int>(headers.size())) out.push_back(headers[idx]);
     } else {
       out.push_back(s);
@@ -246,7 +253,7 @@ step5::FileResult ingest_table(const std::string& path, const TableSpec& spec) {
     else { fr.kind = "skipped"; return fr; }
   } catch (const std::exception& ex) {
     fr.kind = "skipped";
-    fr.text = std::string("（表の読み込みに失敗: ") + ex.what() + "）";
+    fr.error = ex.what();  // text には入れない（出力へ束ねられるため）
     return fr;
   }
   const auto t = build_table(rows, spec);
@@ -360,7 +367,9 @@ std::vector<step5::FileResult> ingest_files(const std::vector<std::string>& path
     step5::FileResult fr;
     if (it != specs.end() && (e == "csv" || e == "xlsx")) fr = ingest_table(p, it->second);
     else fr = ingest(p);
-    if (fr.kind == "skipped") std::fprintf(stderr, "warning: スキップ: %s\n", b.c_str());
+    if (fr.kind == "skipped")
+      std::fprintf(stderr, "warning: スキップ: %s%s%s\n", b.c_str(),
+                   fr.error.empty() ? "" : " — ", fr.error.c_str());
     files.push_back(std::move(fr));
   }
   return files;
@@ -376,9 +385,32 @@ std::vector<step2::Candidate> detect_candidates(Engine& eng,
   struct Agg { step2::Candidate cand; int best; };
   std::vector<Agg> agg;
   std::map<std::pair<std::string, std::string>, std::size_t> aidx;
-  for (const auto& fr : files) {
-    if (fr.text.empty() || fr.kind == "skipped") continue;
-    for (const auto& c : step2::extract_candidates(*eng.patterns, *eng.sd, *eng.ner, fr.text)) {
+  // 検知に掛けるテキスト: 各ファイルの本文 ＋ **ファイル名**。
+  // bundle_blocks は【ファイル名】ブロックと複数ファイル時の【source】見出しで
+  // ファイル名を出力に載せるので、ここで候補にしないと
+  // 「社員名簿_山田太郎_確認用.csv」の氏名がマスクされないまま出ていく。
+  std::string names;  // targets が指すので寿命をループの外に置く
+  {
+    std::set<std::string> seen;
+    for (const auto& fr : files)
+      if (!fr.source.empty() && seen.insert(fr.source).second) names += fr.source + "\n";
+  }
+  // 本文はコピーせず参照で回す（PDF 等で数MBになるため）
+  std::vector<std::pair<std::string, const std::string*>> targets;  // (表示名, テキスト)
+  for (const auto& fr : files)
+    if (!fr.text.empty() && fr.kind != "skipped") targets.emplace_back(fr.source, &fr.text);
+  if (!names.empty()) targets.emplace_back("（ファイル名）", &names);
+
+  for (const auto& [label, text] : targets) {
+    std::vector<step2::Candidate> cands;
+    try {
+      cands = step2::extract_candidates(*eng.patterns, *eng.sd, *eng.ner, *text);
+    } catch (const std::exception& ex) {
+      // 1本の失敗で全体を落とさない（本文は出さない＝生テキストを漏らさない）
+      std::fprintf(stderr, "warning: 検知に失敗: %s — %s\n", label.c_str(), ex.what());
+      continue;
+    }
+    for (const auto& c : cands) {
       const auto key = std::make_pair(step2::strip_all_ws(*eng.patterns, c.text), c.entity_type);
       auto it = aidx.find(key);
       if (it == aidx.end()) {
@@ -489,7 +521,8 @@ struct OutSink {
   std::ostream* os = &std::cout;
   explicit OutSink(const std::string& path) {
     if (!path.empty()) {
-      file.open(path, std::ios::binary);
+      // fileio::open_write を通す（ナローパスだと日本語の出力先を開けない）
+      file = fileio::open_write(path);
       if (!file) throw std::runtime_error("出力を開けません: " + path);
       os = &file;
     }
@@ -605,7 +638,7 @@ int cmd_detect(const Args& a) {
       std::fprintf(stderr,
         "warning: csv/xlsx がありますが --tables-out 未指定のため表の列雛形を出力しません\n");
     } else {
-      std::ofstream tf(a.tables_out, std::ios::binary);
+      std::ofstream tf = fileio::open_write(a.tables_out);  // 日本語パス対応
       if (!tf) die("--tables-out を開けません: " + a.tables_out);
       std::size_t n = 0;
       for (const auto& p : table_files)
@@ -657,7 +690,7 @@ int cmd_mask(const Args& a) {
     if (a.mapping.empty()) {
       std::fprintf(stderr, "warning: --reversible ですが --mapping が無いので対応表を書き出しません（復元不可）\n");
     } else {
-      std::ofstream mf(a.mapping, std::ios::binary);
+      std::ofstream mf = fileio::open_write(a.mapping);  // 日本語パス対応
       if (!mf) die("対応表を開けません: " + a.mapping);
       write_mapping_jsonl(mf, tok.mapping_ordered());
     }

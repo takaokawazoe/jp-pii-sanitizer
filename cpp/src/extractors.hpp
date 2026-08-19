@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "encoding.hpp"  // cp932 → UTF-8（Shift_JIS の CSV/TXT を入口で潰す）
 #include "file_io.hpp"  // UTF-8 パスでのファイル読み（MSVC の cp932 パス問題を吸収）
 #include "re.hpp"
 #include "utf8.hpp"  // trim（Python の str.strip 相当）
@@ -34,17 +35,20 @@ inline std::string strip_ruby(const std::string& text) {
 
 /// 平文バイト列を復号する（_decode_text_bytes の移植）。
 ///
-/// **現状は UTF-8（BOM 除去つき）のみ完全対応。** Python 版は BOM付きUTF-8 → cp932 →
-/// UTF-8(置換) の順に試すが、cp932 の完全なデコード表は重く、実運用サンプル（添付CSV/TXT）は
-/// すべて UTF-8 だった（実測）。cp932 の .txt/.csv が来たら文字化けするので、Phase 4 完了前に
-/// Windows 由来ファイルで要検証（リスク項目）。
+/// Python 版と同じ順で試す: **BOM付きUTF-8 → UTF-8 → cp932 → UTF-8(置換)**。
+/// 日本語 Windows の業務 CSV/TXT は Shift_JIS(cp932) が普通にあり、UTF-8 のまま下流へ
+/// 流すと Rust シムが例外を投げ、PCRE2 は黙って0件を返す（fail-open）。ここで潰す。
+/// cp932 表を持たない POSIX では encoding が false を返すので U+FFFD 置換に落ちる。
 inline std::string decode_text_bytes(const std::string& data) {
-  // UTF-8 BOM を除去（utf-8-sig 相当）
+  // UTF-8 BOM を除去（utf-8-sig 相当）。BOM があれば UTF-8 と断定してよい。
   if (data.size() >= 3 && static_cast<unsigned char>(data[0]) == 0xEF &&
       static_cast<unsigned char>(data[1]) == 0xBB && static_cast<unsigned char>(data[2]) == 0xBF) {
-    return data.substr(3);
+    return utf8::repair(data.substr(3));
   }
-  return data;
+  if (utf8::is_valid(data)) return data;
+  std::string converted;
+  if (encoding::cp932_to_utf8(data, converted)) return converted;
+  return utf8::repair(data);  // どちらでもない → 不正バイトを U+FFFD へ
 }
 
 inline std::string read_file(const std::string& path) {

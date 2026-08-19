@@ -153,16 +153,25 @@ class Tokenizer {
       const std::string canonical = (ait != aliases.end()) ? ait->second : term.text;
       const std::string core = strip_spaces(term.text);
 
+      if (term.text.empty()) continue;
+      std::vector<std::pair<std::size_t, std::size_t>> hits;
       if (utf8::char_len(core) >= WS_MATCH_MIN_CHARS) {
         re::Regex pat(ws_insensitive_pattern(term.text));
-        if (pat.finditer(text).empty()) continue;  // 無ければ _assign しない（番号が進まない）
-        const std::string token = assign(canonical, prefix);
-        text = replace_matches(pat, text, token);
+        for (const auto& m : pat.finditer(text)) hits.emplace_back(m.begin, m.end);
       } else {
-        if (term.text.empty() || text.find(term.text) == std::string::npos) continue;
-        const std::string token = assign(canonical, prefix);
-        text = replace_literal(text, term.text, token);
+        std::size_t pos = 0, p;
+        while ((p = text.find(term.text, pos)) != std::string::npos) {
+          hits.emplace_back(p, p + term.text.size());
+          pos = p + term.text.size();
+        }
       }
+      // 既に挿入したトークンの内側にマッチしたものは捨てる。捨てないと、短い確定語
+      // （手動追記の "ON" 等）が {{PERSON_1}} の内部に当たってトークンを壊し、逆置換が
+      // できなくなる。**置換対象が全滅したら assign もしない**（トークン番号を進めない）。
+      hits = drop_inside_placeholders(text, hits);
+      if (hits.empty()) continue;
+      const std::string token = assign(canonical, prefix);
+      text = splice(text, hits, token);
     }
     return text;
   }
@@ -185,6 +194,47 @@ class Tokenizer {
     if (reversible_) return "{{" + kind + "_" + std::to_string(n) + "}}";
     const auto it = LABEL_JA.find(kind);
     return "[" + (it != LABEL_JA.end() ? it->second : kind) + std::to_string(n) + "]";
+  }
+
+  /// 現在のテキスト中の「挿入済みトークン」の位置（可逆 {{X_n}} / 不可逆 [ラベルn]）。
+  std::vector<std::pair<std::size_t, std::size_t>> placeholder_spans(const std::string& s) const {
+    static const re::Regex rev{R"(\{\{[A-Z]+_\d+\}\})"};
+    static const re::Regex irr{R"(\[(?:人名|会社名|住所|メール|電話|郵便番号)\d+\])"};
+    std::vector<std::pair<std::size_t, std::size_t>> out;
+    for (const auto& m : (reversible_ ? rev : irr).finditer(s)) out.emplace_back(m.begin, m.end);
+    return out;
+  }
+
+  /// トークンの内側に食い込むマッチを落とす。
+  std::vector<std::pair<std::size_t, std::size_t>> drop_inside_placeholders(
+      const std::string& s, const std::vector<std::pair<std::size_t, std::size_t>>& hits) const {
+    if (hits.empty()) return hits;
+    const auto prot = placeholder_spans(s);
+    if (prot.empty()) return hits;
+    std::vector<std::pair<std::size_t, std::size_t>> out;
+    for (const auto& h : hits) {
+      bool clash = false;
+      for (const auto& p : prot)
+        if (!(h.second <= p.first || h.first >= p.second)) { clash = true; break; }
+      if (!clash) out.push_back(h);
+    }
+    return out;
+  }
+
+  /// `spans`（昇順・非重複）を `to` で置き換える。
+  static std::string splice(const std::string& s,
+                            const std::vector<std::pair<std::size_t, std::size_t>>& spans,
+                            const std::string& to) {
+    std::string out;
+    std::size_t prev = 0;
+    for (const auto& [b, e] : spans) {
+      if (b < prev) continue;
+      out += s.substr(prev, b - prev);
+      out += to;
+      prev = e;
+    }
+    out += s.substr(prev);
+    return out;
   }
 
   static std::string replace_literal(const std::string& s, const std::string& from,
@@ -252,11 +302,32 @@ inline std::vector<std::string> safety_gate(const std::string& tokenized,
   static const re::Regex email{R"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})"};
   static const re::Regex phone{R"((?<![\d\-])(?:0\d{1,4}-\d{1,4}-\d{3,4}|0\d{9,10})(?![\d\-]))"};
   static const re::Regex postal{R"((?<![\d\-])\d{3}-\d{4}(?![\d\-]))"};
+  // 挿入済みトークンの**内側**は「残存」ではない。短いラテン語の確定語（"ON" 等）は
+  // {{PERSON_1}} の中に文字列として現れるため、素の find では偽陽性になる。
+  static const re::Regex ph{
+      R"(\{\{[A-Z]+_\d+\}\}|\[(?:人名|会社名|住所|メール|電話|郵便番号)\d+\])"};
+  std::vector<std::pair<std::size_t, std::size_t>> prot;
+  for (const auto& m : ph.finditer(tokenized)) prot.emplace_back(m.begin, m.end);
+  const auto inside = [&](std::size_t b, std::size_t e) {
+    for (const auto& p : prot)
+      if (b >= p.first && e <= p.second) return true;  // 完全にトークンの中
+    return false;
+  };
+
   std::vector<std::string> leaks;
-  for (const auto& v : raw_values)
-    if (!v.empty() && tokenized.find(v) != std::string::npos) leaks.push_back(v);
+  for (const auto& v : raw_values) {
+    if (v.empty()) continue;
+    for (std::size_t pos = 0, p; (p = tokenized.find(v, pos)) != std::string::npos;
+         pos = p + v.size()) {
+      if (!inside(p, p + v.size())) {  // 1つでも外に出ていれば漏れ
+        leaks.push_back(v);
+        break;
+      }
+    }
+  }
   for (const auto* rx : {&email, &phone, &postal})
-    for (const auto& m : rx->finditer(tokenized)) leaks.push_back(m.text);
+    for (const auto& m : rx->finditer(tokenized))
+      if (!inside(m.begin, m.end)) leaks.push_back(m.text);
   return leaks;
 }
 

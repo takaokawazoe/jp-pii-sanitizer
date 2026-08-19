@@ -27,7 +27,30 @@ struct FileResult {
   std::vector<std::vector<std::string>> rows;      // データ表のとき
   std::vector<std::string> name_cols, company_cols;
   bool has_table = false;
+  // 抽出に失敗した理由（UI/CLI の表示専用）。**text に混ぜてはいけない**——text は
+  // そのまま AI 送信テキストへ束ねられるので、例外メッセージが本文に紛れ込む。
+  std::string error;
 };
+
+/// 束ねの先頭に付く【ファイル名】ブロックの本文（無ければ空）。
+///
+/// bundle_blocks から切り出してある。**ここに載る名前は検知の対象にしないと素通りする**
+/// ので、UI/CLI 側が候補検知に掛けられるよう公開している（ファイル名にも氏名は普通に入る:
+/// 例「社員名簿_山田太郎_確認用.csv」）。
+inline std::vector<std::string> source_names(const std::vector<FileResult>& extracted) {
+  std::set<std::string> nameset;  // 重複除去して昇順
+  for (const auto& r : extracted)
+    if (!r.source.empty() && r.kind != "xlsx") nameset.insert(r.source);
+  return {nameset.begin(), nameset.end()};
+}
+
+inline std::string filenames_block(const std::vector<FileResult>& extracted) {
+  const auto names = source_names(extracted);
+  if (names.empty()) return {};
+  std::string blk = "【ファイル名】";
+  for (const auto& n : names) blk += "\n" + n;
+  return blk;
+}
 
 /// データ表の指定列を丸ごとトークン化し件数要約を返す（tokenize_table の移植）。
 ///
@@ -83,14 +106,8 @@ inline std::string bundle_blocks(tokenizer::Tokenizer& tok, const std::vector<Fi
                                                             : r.text);
 
   // 【ファイル名】ブロック（xlsx 容器は除く・重複除去して昇順）
-  std::set<std::string> nameset;
-  for (const auto& r : extracted)
-    if (!r.source.empty() && r.kind != "xlsx") nameset.insert(r.source);
-  if (!nameset.empty()) {
-    std::string blk = "【ファイル名】";
-    for (const auto& n : nameset) blk += "\n" + n;
-    blocks.insert(blocks.begin(), blk);
-  }
+  const std::string namesblk = filenames_block(extracted);
+  if (!namesblk.empty()) blocks.insert(blocks.begin(), namesblk);
 
   for (const auto& r : extracted)
     if (is_table_kind(r.kind) && r.has_table)
