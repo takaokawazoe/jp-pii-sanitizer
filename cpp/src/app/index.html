@@ -81,35 +81,19 @@
 <section id="tab-rev" class="panel">
  <div class="revwrap">
    <h3>逆置換（社内AIの出力＋対応表 → 実名）</h3>
-   <p style="font-size:12px;color:#666;margin:0 0 8px">社内AIが返したトークン入りテキストと、サニタイズ時に保存した対応表CSVを貼り付けて実名に戻します。</p>
+   <p style="font-size:12px;color:#666;margin:0 0 8px">社内AIが返したトークン入りテキストと、サニタイズ時に保存した対応表(.jsonl)の中身を貼り付けて実名に戻します。</p>
    <textarea id="rvtext" rows="8" placeholder="トークン入りテキスト（{{PERSON_1}} 等）"></textarea>
-   <textarea id="rvmap" rows="5" placeholder="対応表 CSV: token,original"></textarea>
+   <textarea id="rvmap" rows="5" placeholder='対応表 JSONL: {"token":"{{PERSON_1}}","original":"..."} を1行1件'></textarea>
    <div><button class="sec" id="rv">実名に戻す</button></div>
    <div id="rvout"></div>
  </div>
 </section>
 <script>
- let seq=1, candidates=[], blocks=[], manual=[], lastSanitized='', lastMapping=[], docBase='output', openedPaths=[];
- // 対応表 CSV は RFC4180 で引用する。原文に , " 改行 が入ると素の連結では壊れ、
- // 逆置換で実名に戻せなくなる（＝復元不能）。
- const csvEsc=v=>{ const s=String(v==null?'':v); return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
- const mappingCsv=()=>['token,original'].concat(lastMapping.map(x=>csvEsc(x.token)+','+csvEsc(x.original))).join('\r\n');
- // 引用符・埋め込み改行に対応した CSV パーサ（貼り付けられた対応表を読む）。
- function parseCsv(text){
-   const rows=[]; let row=[], f='', q=false;
-   for(let i=0;i<text.length;i++){
-     const c=text[i];
-     if(q){
-       if(c==='"'){ if(text[i+1]==='"'){ f+='"'; i++; } else q=false; }
-       else f+=c;
-     } else if(c==='"'){ q=true; }
-     else if(c===','){ row.push(f); f=''; }
-     else if(c==='\n'||c==='\r'){ if(c==='\r'&&text[i+1]==='\n') i++; row.push(f); rows.push(row); row=[]; f=''; }
-     else f+=c;
-   }
-   if(f!==''||row.length){ row.push(f); rows.push(row); }
-   return rows;
- }
+ let seq=1, candidates=[], blocks=[], manual=[], lastSanitized='', mappingJsonl='', mappingCount=0, docBase='output', openedPaths=[];
+ // 対応表の書式は JSONL。**JS では組み立てない・解釈しない。** ネイティブ側の
+ // mapping_io が唯一のシリアライザで、CLI (jp-pii-sanitizer-cli) と同じものを読み書きする。
+ // 以前は JS が CSV を組み立てていたため、GUI が保存した対応表を CLI の restore が
+ // 読めなかった。表示はネイティブが返した文字列をそのまま出すだけにする。
  const baseName=p=>p.replace(/^.*[\\/]/,'');
  const $=id=>document.getElementById(id);
  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -227,26 +211,33 @@
    } else if(m.type==='sanitize'){
      if(!m.ok){ $('status').textContent='エラー: '+(m.error||'不明'); switchTab('san'); return; }
      lastSanitized=m.sanitized||'';
-     lastMapping=(m.reversible && m.mapping)? m.mapping : [];
+     mappingJsonl=(m.reversible && m.mapping_jsonl)? m.mapping_jsonl : '';
+     mappingCount=m.mapping_count||0;
      let h='<h3>サニタイズ結果</h3>';
      if((m.leaks||[]).length){ h+='<div class="leak">⚠ 安全ゲート: '+m.leaks.length+' 件が本文に残存 — 送信前に確定へ戻ってください</div>'; }
-     else { h+='<div style="color:#0a7d64">✔ 安全ゲート通過（'+(m.mapping||[]).length+' 件をマスク）</div>'; }
+     else { h+='<div style="color:#0a7d64">✔ 安全ゲート通過（'+mappingCount+' 件をマスク）</div>'; }
      h+='<div class="rowbtns"><button id="dlText">⬇ サニタイズ結果を保存</button></div>';
      h+='<textarea rows="12" readonly>'+esc(lastSanitized)+'</textarea>';
-     if(lastMapping.length){
+     if(mappingJsonl){
        h+='<h3>対応表（最高機密・可逆時のみ）</h3>';
-       h+='<div class="rowbtns"><button id="dlMap">⬇ 対応表CSVを保存</button>'+
+       h+='<div class="rowbtns"><button id="dlMap">⬇ 対応表を保存 (.jsonl)</button>'+
           '<span style="font-size:12px;color:#c00">※AIに渡さず厳重管理</span></div>';
-       h+='<textarea rows="8" readonly>'+esc(mappingCsv())+'</textarea>';
+       h+='<div style="font-size:12px;color:#666;margin-bottom:4px">'+
+          'この対応表が無いと実名に戻せません。閉じる前に保存してください。'+
+          'コマンドライン版の <code>restore --mapping</code> にそのまま渡せます。</div>';
+       h+='<textarea rows="8" readonly>'+esc(mappingJsonl)+'</textarea>';
      }
      h+='<div class="rowbtns" style="margin-top:12px"><button class="sec" id="back">◀ サニタイズ画面に戻る</button></div>';
      h+='<div id="saveMsg" style="font-size:12px;color:#666"></div>';
      $('resultBody').innerHTML=h;
      $('dlText').onclick=()=>send({cmd:'saveFile', name:docBase+'_sanitized.txt', content:lastSanitized});
      $('back').onclick=()=>switchTab('san');
-     if($('dlMap')) $('dlMap').onclick=()=>send({cmd:'saveFile', name:docBase+'_mapping.csv', content:mappingCsv()});
+     // 保存は本文を渡さない。native が Core の対応表を mapping_io で直接書き出す。
+     if($('dlMap')) $('dlMap').onclick=()=>send({cmd:'saveMapping', name:docBase+'_mapping.jsonl'});
      switchTab('result');
    } else if(m.type==='reverse'){
+     // 対応表の書式エラー（行番号つき）はここに出る。黙って 0 件成功にしない。
+     if(!m.ok){ $('rvout').innerHTML='<div class="leak">'+esc(m.error||'逆置換に失敗しました')+'</div>'; return; }
      let h='<h3>逆置換結果</h3>';
      if((m.leftovers||[]).length) h+='<div class="leak">未置換トークン: '+m.leftovers.join(', ')+'</div>';
      h+='<textarea rows="6">'+esc(m.restored||'')+'</textarea>';
@@ -259,7 +250,7 @@
    // **native にも伝える。** 伝えないと Core が読み込み済み文書を保持したままになり、
    // 直後に「サニタイズ実行」を押すと消したはずの文書が結果画面に出る。
    send({cmd:'reset'});
-   openedPaths=[]; candidates=[]; blocks=[]; manual=[]; lastSanitized=''; lastMapping=[]; docBase='output';
+   openedPaths=[]; candidates=[]; blocks=[]; manual=[]; lastSanitized=''; mappingJsonl=''; mappingCount=0; docBase='output';
    renderLoaded(); renderCands(); renderPreview();
    $('resultBody').innerHTML='<p style="color:#666">「▶ サニタイズ実行」を押すと、ここに結果と対応表が表示されます。</p>';
    $('status').textContent='対応: docx / pptx / xlsx / pdf / csv / txt';
@@ -270,18 +261,7 @@
  $('prev').onclick=()=>send({cmd:'preview', confirmed:currentConfirmed()});
  $('san').onclick=()=>{ const rev=document.querySelector('input[name=rev]:checked').value==='1';
    send({cmd:'sanitize', confirmed:currentConfirmed(), reversible:rev}); };
- $('rv').onclick=()=>{
-   const map=[];
-   parseCsv($('rvmap').value).forEach(r=>{
-     if(r.length<2) return;
-     const token=r[0].trim();
-     // 引用無しの旧形式で原文に , が入っていた場合に備え、2列目以降は繋ぎ直す。
-     const original=r.slice(1).join(',').trim();
-     if(!token) return;
-     if(/^token$/i.test(token) && /^original$/i.test(original)) return;  // 見出し行
-     map.push({token:token, original:original});
-   });
-   send({cmd:'reverse', text:$('rvtext').value, mapping:map});
- };
+ // 対応表は解釈せずそのままネイティブへ渡す（読み手は CLI と同じ mapping_io）。
+ $('rv').onclick=()=>send({cmd:'reverse', text:$('rvtext').value, mappingText:$('rvmap').value});
 </script>
 </body></html>

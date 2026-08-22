@@ -24,6 +24,7 @@
 #include "file_io.hpp"
 #include "hf_ner.hpp"
 #include "json.hpp"
+#include "mapping_io.hpp"
 #include "ooxml.hpp"
 #include "pdf.hpp"
 #include "step2.hpp"
@@ -246,6 +247,7 @@ class Core {
     // （以前は空チェックが無く、UI の「リセット」が native に伝わらないため、
     //   消したはずの文書がほぼ素のまま結果画面に出ていた）
     if (results_.empty()) return fail_json("読み込まれたファイルがありません。");
+    last_mapping_.clear();
     try {
       tokenizer::Tokenizer tok(reversible);
       const std::string bundle = step5::bundle_blocks(tok, results_, sd_.get());
@@ -255,30 +257,43 @@ class Core {
       for (const auto& [v, t] : tok.mapping_ordered()) raw.push_back(v);
       const auto leaks = tokenizer::safety_gate(sanitized, raw);
 
-      json mapping = json::array();
-      for (const auto& [v, t] : tok.mapping_ordered())
-        mapping.push_back({{"token", t}, {"original", v}});
+      // 対応表は Core が持つ。保存は saveMapping で native が直接書き出すので、
+      // JS 側に文字列を組み立てさせない（シリアライザは mapping_io の 1 本だけ）。
+      // 不可逆モードは対応表を残さない＝ここで捨てる。
+      if (reversible) last_mapping_ = tok.mapping_ordered();
 
       json out;
       out["ok"] = true;
       out["sanitized"] = sanitized;
-      out["mapping"] = mapping;         // 可逆時のみ意味を持つ（対応表＝最高機密）
+      // 結果画面の表示用。書式は保存されるファイルと同一（GUI と CLI で 1 バイトも違わない）。
+      out["mapping_jsonl"] = last_mapping_.empty() ? std::string() : mapping_jsonl();
+      out["mapping_count"] = static_cast<int>(last_mapping_.size());
       out["reversible"] = reversible;
       out["leaks"] = leaks;             // 空なら安全ゲート通過
       return out;
     } catch (const std::exception& e) {
+      last_mapping_.clear();
       return fail_json(std::string("サニタイズに失敗しました: ") + e.what());
     }
   }
 
-  // ④ 逆置換。text＋対応表[{token,original}] → {ok, restored, leftovers:[...]}
-  json reverse(const std::string& text,
-               const std::vector<std::pair<std::string, std::string>>& token_original) {
+  /// 直近のサニタイズが作った対応表（JSONL）。無ければ空。
+  std::string mapping_jsonl() const { return mapping_io::to_jsonl(last_mapping_); }
+  bool has_mapping() const { return !last_mapping_.empty(); }
+
+  // ④ 逆置換。text＋貼り付けられた対応表(JSONL) → {ok, restored, leftovers:[...]}
+  //
+  // 対応表の解釈は mapping_io に任せる。JS でパースしていた頃は GUI と CLI で読み手が
+  // 分かれていて、片方で読めるものが他方で読めなかった。
+  json reverse(const std::string& text, const std::string& mapping_text) {
+    std::vector<mapping_io::Entry> value_token;
+    try {
+      value_token = mapping_io::parse(mapping_text);
+    } catch (const std::exception& e) {
+      return fail_json(e.what());  // 行番号つきの書式エラーをそのまま見せる
+    }
     try {
       tokenizer::Tokenizer tok;  // 可逆版（既定）
-      std::vector<std::pair<std::string, std::string>> value_token;
-      for (const auto& [token, original] : token_original)
-        value_token.emplace_back(original, token);
       tok.load_mapping(value_token);
       const std::string restored = tok.reverse(utf8::repair(text));
       const auto left = tokenizer::find_unreplaced_tokens(restored);
@@ -292,10 +307,12 @@ class Core {
     }
   }
 
-  /// 画面の「リセット」。読み込み済みの文書・候補を native 側からも消す。
+  /// 画面の「リセット」。読み込み済みの文書・候補・**対応表**を native 側からも消す。
+  /// 対応表は本ツールが作る最も機微な成果物なので、リセットで確実に落とす。
   void clear() {
     results_.clear();
     last_candidates_.clear();
+    last_mapping_.clear();
   }
 
  private:
@@ -368,6 +385,7 @@ class Core {
   std::unique_ptr<hf::Ner> ner_;
   std::vector<step5::FileResult> results_;
   std::vector<step2::Candidate> last_candidates_;
+  std::vector<mapping_io::Entry> last_mapping_;  // (実値, トークン) 挿入順。可逆時のみ
 };
 
 }  // namespace appcore

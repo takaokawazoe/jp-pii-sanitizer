@@ -62,6 +62,17 @@ the GUI. It exposes three commands:
    translation unit pulls in Aspose) — and links no WebView2, which is why it
    builds and runs on Linux/macOS as well as Windows.
 
+8. **One mapping serializer, shared with the GUI.** `mapping_io.hpp` owns both the
+   writer and the reader; the GUI calls the same functions instead of formatting
+   the mapping in JavaScript. Two implementations meant two formats — the app used
+   to save CSV, so a mapping saved in the GUI made `restore` fail on line 1. The
+   reader is deliberately **strict**: a truncated, half-filled or duplicated entry
+   raises an error with its line number instead of being skipped, because a
+   silently dropped entry leaves a live `{{PERSON_n}}` in text the user believes
+   was restored. Files start with a `{"_meta":{"version":1}}` line — readers that
+   predate it ignore it (it carries no `token`/`original`), and an unknown version
+   is rejected outright rather than parsed into an empty, innocent-looking mapping.
+
 ### Pipeline
 
 - **detect** splits inputs: prose docs go through NER → candidate JSONL; csv/xlsx
@@ -148,6 +159,15 @@ cross-platform claim is checked on every push, not just asserted.
 7. **GUI facade ではなくライブラリヘッダを直接再利用。** `core.hpp` は WebView2 用の facade で
    あえて Aspose を取り込まない。CLI はライブラリヘッダを直接 include し（＝`.msg` を取り込める・
    TU に Aspose が入る）、WebView2 をリンクしない。これが Linux/macOS でもビルド・実行できる理由。
+
+8. **対応表のシリアライザは 1 本・GUI と共有。** `mapping_io.hpp` が読み書きの両方を持ち、
+   GUI も JavaScript で組み立てずに同じ関数を呼ぶ。実装が 2 つあれば書式も 2 つになり、
+   実際 GUI は CSV を保存していたため、その対応表を `restore` に渡すと 1 行目で落ちていた。
+   リーダーは意図的に**厳格**で、壊れた行・片側だけの行・重複を読み飛ばさず行番号を添えて
+   落とす。黙って落とすと、利用者が「実名に戻した」と思っているテキストに `{{PERSON_n}}` が
+   生き残るため。ファイル先頭には `{"_meta":{"version":1}}` を置く。この行は
+   `token`/`original` を持たないので旧リーダーは素通りし、逆に未知バージョンは
+   「空の対応表として正常終了」させず明示的に拒否する。
 
 ### パイプライン
 

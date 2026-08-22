@@ -39,6 +39,7 @@
 #include "file_io.hpp"
 #include "hf_ner.hpp"
 #include "json.hpp"
+#include "mapping_io.hpp"
 #include "msg.hpp"
 #include "numparse.hpp"
 #include "ooxml.hpp"
@@ -479,39 +480,13 @@ std::vector<tokenizer::ConfirmedTerm> read_candidates_jsonl(const std::string& p
   return out;
 }
 
-void write_mapping_jsonl(std::ostream& out,
-                         const std::vector<std::pair<std::string, std::string>>& value_token) {
-  for (const auto& [value, token] : value_token) {
-    json j = {{"token", token}, {"original", value}};
-    out << j.dump() << "\n";
-  }
-}
-
+// 対応表の読み書きは mapping_io.hpp（GUI と共有）。ここはファイル入出力の薄い層だけ。
 // 返り: value -> token（load_mapping が要求する並び）
-std::vector<std::pair<std::string, std::string>> read_mapping_jsonl(const std::string& path) {
+std::vector<mapping_io::Entry> read_mapping_file(const std::string& path) {
   const std::string body = fileio::read_all(path);
   if (body.empty() && !file_exists(path))
     throw std::runtime_error("対応表が読めません: " + path);
-  std::vector<std::pair<std::string, std::string>> value_token;
-  std::istringstream in(body);
-  std::string line;
-  std::size_t ln = 0;
-  while (std::getline(in, line)) {
-    ++ln;
-    if (!line.empty() && line.back() == '\r') line.pop_back();
-    std::size_t s = line.find_first_not_of(" \t");
-    if (s == std::string::npos || line[s] == '#') continue;
-    try {
-      const json j = json::parse(line);
-      const std::string token = j.value("token", std::string());
-      const std::string original = j.value("original", std::string());
-      if (token.empty() || original.empty()) continue;
-      value_token.emplace_back(original, token);
-    } catch (const std::exception& ex) {
-      throw std::runtime_error("対応表JSONL " + std::to_string(ln) + " 行目を解釈できません: " + ex.what());
-    }
-  }
-  return value_token;
+  return mapping_io::parse(body);
 }
 
 // ---------------------------------------------------------------- output sink
@@ -692,7 +667,8 @@ int cmd_mask(const Args& a) {
     } else {
       std::ofstream mf = fileio::open_write(a.mapping);  // 日本語パス対応
       if (!mf) die("対応表を開けません: " + a.mapping);
-      write_mapping_jsonl(mf, tok.mapping_ordered());
+      const std::string jsonl = mapping_io::to_jsonl(tok.mapping_ordered());
+      mf.write(jsonl.data(), static_cast<std::streamsize>(jsonl.size()));
     }
   }
 
@@ -706,7 +682,7 @@ int cmd_mask(const Args& a) {
 
 int cmd_restore(const Args& a) {
   if (a.mapping.empty()) die("restore: --mapping が必要です");
-  const auto value_token = read_mapping_jsonl(a.mapping);
+  const auto value_token = read_mapping_file(a.mapping);
   std::string text;
   if (!a.input.empty()) {
     text = fileio::read_all(a.input);

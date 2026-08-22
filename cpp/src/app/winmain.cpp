@@ -132,17 +132,23 @@ void post_json(const json& j) {
 }
 
 // ---- ネイティブの保存ダイアログ（保存先をユーザーが選ぶ） ----
-// CSV は Excel が日本語を正しく開けるよう UTF-8 BOM を付ける。キャンセル時 false。
-bool save_file(const std::wstring& suggested, const std::string& utf8, bool add_bom) {
+// キャンセル時 false。
+//
+// **BOM は付けない。** 以前は対応表が CSV で、Excel 対策に UTF-8 BOM を付けていた。
+// 対応表は JSONL に移したので Excel で開く前提が消え、むしろ BOM があると 1 行目の
+// json::parse が落ちる（読み手側でも剥がすが、そもそも書かない）。
+bool save_file(const std::wstring& suggested, const std::string& utf8) {
   ComPtr<IFileSaveDialog> dlg;
   if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg))))
     return false;
   dlg->SetFileName(suggested.c_str());
-  COMDLG_FILTERSPEC filters[] = {{L"テキスト", L"*.txt"}, {L"CSV", L"*.csv"}, {L"すべて", L"*.*"}};
+  COMDLG_FILTERSPEC filters[] = {
+      {L"テキスト", L"*.txt"}, {L"対応表 (JSONL)", L"*.jsonl"}, {L"すべて", L"*.*"}};
   dlg->SetFileTypes(3, filters);
-  const bool is_csv = suggested.size() >= 4 && suggested.substr(suggested.size() - 4) == L".csv";
-  dlg->SetFileTypeIndex(is_csv ? 2 : 1);
-  dlg->SetDefaultExtension(is_csv ? L"csv" : L"txt");
+  const bool is_jsonl =
+      suggested.size() >= 6 && suggested.substr(suggested.size() - 6) == L".jsonl";
+  dlg->SetFileTypeIndex(is_jsonl ? 2 : 1);
+  dlg->SetDefaultExtension(is_jsonl ? L"jsonl" : L"txt");
   if (FAILED(dlg->Show(g_hwnd))) return false;  // キャンセル含む
   ComPtr<IShellItem> item;
   if (FAILED(dlg->GetResult(&item))) return false;
@@ -152,10 +158,6 @@ bool save_file(const std::wstring& suggested, const std::string& utf8, bool add_
   CoTaskMemFree(path);
   std::ofstream out(wp, std::ios::binary);  // MSVC は wchar_t パスの ofstream を受ける
   if (!out) return false;
-  if (add_bom) {
-    const char bom[3] = {static_cast<char>(0xEF), static_cast<char>(0xBB), static_cast<char>(0xBF)};
-    out.write(bom, 3);
-  }
   out.write(utf8.data(), static_cast<std::streamsize>(utf8.size()));
   return out.good();
 }
@@ -243,13 +245,23 @@ void dispatch_command(const json& req, const std::string& cmd, int id) {
     r["id"] = id; r["type"] = "sanitize";
     post_json(r);
   } else if (cmd == "reverse") {
-    std::vector<std::pair<std::string, std::string>> map;
-    for (const auto& m : array_or_empty(req, "mapping"))
-      if (m.is_object())
-        map.emplace_back(m.value("token", std::string()), m.value("original", std::string()));
-    auto r = g_core->reverse(req.value("text", std::string()), map);
+    // 貼り付けられた対応表は生テキストのまま渡す。解釈は mapping_io（CLI と同じ読み手）。
+    auto r = g_core->reverse(req.value("text", std::string()),
+                             req.value("mappingText", std::string()));
     r["id"] = id; r["type"] = "reverse";
     post_json(r);
+  } else if (cmd == "saveMapping") {
+    // 対応表は native が直接シリアライズして書く。JS には保存用の文字列を作らせない
+    // （書式を 1 本に保つため。将来ここを暗号化した封筒に差し替える）。
+    if (!g_core->has_mapping()) {
+      resp["ok"] = false;
+      resp["error"] = "保存できる対応表がありません（可逆モードでサニタイズしてください）。";
+    } else {
+      resp["ok"] = save_file(to_wide(req.value("name", std::string("mapping.jsonl"))),
+                             g_core->mapping_jsonl());
+    }
+    resp["type"] = "save";
+    post_json(resp);
   } else if (cmd == "reset") {
     // 画面のリセットを native にも伝える。伝えないと Core の results_ が残り、
     // 直後に「サニタイズ実行」で消したはずの文書が結果画面に出てしまう。
@@ -258,10 +270,9 @@ void dispatch_command(const json& req, const std::string& cmd, int id) {
     resp["ok"] = true;
     post_json(resp);
   } else if (cmd == "saveFile") {
-    const std::string name = req.value("name", std::string("output.txt"));
-    const std::string content = req.value("content", std::string());
-    const bool is_csv = name.size() >= 4 && name.substr(name.size() - 4) == ".csv";
-    resp["ok"] = save_file(to_wide(name), content, is_csv);  // CSV は BOM 付き
+    // サニタイズ結果のテキスト専用。対応表は saveMapping（native がシリアライズ）を使う。
+    resp["ok"] = save_file(to_wide(req.value("name", std::string("output.txt"))),
+                           req.value("content", std::string()));
     resp["type"] = "save";
     post_json(resp);
   }
@@ -288,10 +299,29 @@ void run_selftest() {
     conf.push_back({c.value("text", std::string()), c.value("entity_type", std::string())});
   auto san = g_core->sanitize(conf, true);
   const int nleak = san.value("leaks", json::array()).size();
-  const int nmap = san.value("mapping", json::array()).size();
+  const int nmap = san.value("mapping_count", 0);
   log_line(L"sanitize: mapping=" + std::to_wstring(nmap) + L" leaks=" + std::to_wstring(nleak));
 
-  const bool pass = ncand > 0 && nleak == 0;
+  // 対応表を GUI が保存するのと同じ書式で書き出す（保存ダイアログを出さずに中身を取る）。
+  // これをそのまま `jp-pii-sanitizer-cli restore --mapping` に渡せることが、
+  // GUI と CLI で書式が 1 本になっていることの受け入れ条件になる。
+  bool roundtrip = false;
+  if (g_core->has_mapping()) {
+    const std::string jsonl = g_core->mapping_jsonl();
+    const std::wstring mpath = g_selftest_log + L".mapping.jsonl";
+    { std::ofstream mf(mpath, std::ios::binary); mf.write(jsonl.data(),
+                                                          (std::streamsize)jsonl.size()); }
+    log_line(L"mapping written: " + mpath);
+
+    // 書いたものを同じ読み手で戻せるか（GUI 内での往復）。
+    auto rev = g_core->reverse(san.value("sanitized", std::string()), jsonl);
+    const int nleft = rev.value("leftovers", json::array()).size();
+    roundtrip = rev.value("ok", false) && nleft == 0;
+    log_line(L"reverse: ok=" + std::to_wstring((int)rev.value("ok", false)) +
+             L" leftovers=" + std::to_wstring(nleft));
+  }
+
+  const bool pass = ncand > 0 && nleak == 0 && nmap > 0 && roundtrip;
   log_line(pass ? L"SELFTEST PASS" : L"SELFTEST FAIL");
   PostQuitMessage(pass ? 0 : 5);
 }

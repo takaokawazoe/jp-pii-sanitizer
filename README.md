@@ -27,10 +27,13 @@ rule-based recognizers.
 3. **Confirm** (opt-out): everything is masked by default; you only *uncheck*
    what should stay, and can *manually add* anything the detector missed.
 4. **Sanitize** — replace detected PII with placeholders and download the result.
-   - *Reversible*: `{{PERSON_1}}` with a mapping CSV you keep private.
+   - *Reversible*: `{{PERSON_1}}` with a mapping file (`.jsonl`) you keep private.
    - *Irreversible*: redaction like `[人名1]` (no mapping kept).
    - A **safety gate** re-scans the output and warns if any raw value survived.
-5. **Restore** — paste the AI's reply plus the mapping CSV to get real values back.
+5. **Restore** — paste the AI's reply plus the mapping to get real values back.
+
+The GUI and the CLI read and write the **same** mapping format, so a mapping saved
+in the app can be passed straight to `jp-pii-sanitizer-cli restore --mapping`.
 
 The confirmation UI highlights exactly what will be masked (the same matcher the
 sanitizer uses), so the preview and the result always agree.
@@ -141,10 +144,13 @@ All sample and test data is synthetic — no real personal information is includ
    **ファイル名も検出対象**です（束ねたテキストに載るため。`社員名簿_山田太郎_確認用.csv` は氏名の漏洩になります）。
 3. **確定（opt-out）**: 既定は全マスク。残すものだけ*チェックを外し*、検出漏れは*手動で追記*できます。
 4. **サニタイズ**: 検出した PII をプレースホルダに置換して結果をダウンロード。
-   - *可逆*: `{{PERSON_1}}` ＋ 対応表 CSV（厳重管理）。
+   - *可逆*: `{{PERSON_1}}` ＋ 対応表ファイル（`.jsonl`・厳重管理）。
    - *不可逆*: `[人名1]` の墨消し（対応表なし）。
    - **安全ゲート**が出力を再走査し、生の値が残っていれば警告します。
-5. **逆置換**: AI の返答と対応表 CSV を貼り付けて実名に戻します。
+5. **逆置換**: AI の返答と対応表を貼り付けて実名に戻します。
+
+GUI と CLI は**同じ**対応表フォーマットを読み書きします。アプリで保存した対応表は、
+そのまま `jp-pii-sanitizer-cli restore --mapping` に渡せます。
 
 確定画面は、実際にマスクされる箇所（サニタイザと同じマッチャ）をハイライトするので、
 プレビューと結果が常に一致します。
