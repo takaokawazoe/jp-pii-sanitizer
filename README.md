@@ -28,6 +28,8 @@ rule-based recognizers.
    what should stay, and can *manually add* anything the detector missed.
 4. **Sanitize** — replace detected PII with placeholders and download the result.
    - *Reversible*: `{{PERSON_1}}` with a mapping file (`.jsonl`) you keep private.
+     It can optionally be **protected with a passphrase** (Argon2id +
+     XChaCha20-Poly1305) — see [docs/mapping-encryption.md](docs/mapping-encryption.md).
    - *Irreversible*: redaction like `[人名1]` (no mapping kept).
    - A **safety gate** re-scans the output and warns if any raw value survived.
 5. **Restore** — paste the AI's reply plus the mapping to get real values back.
@@ -145,6 +147,8 @@ All sample and test data is synthetic — no real personal information is includ
 3. **確定（opt-out）**: 既定は全マスク。残すものだけ*チェックを外し*、検出漏れは*手動で追記*できます。
 4. **サニタイズ**: 検出した PII をプレースホルダに置換して結果をダウンロード。
    - *可逆*: `{{PERSON_1}}` ＋ 対応表ファイル（`.jsonl`・厳重管理）。
+     任意で**パスフレーズ保護**できます（Argon2id + XChaCha20-Poly1305。
+     詳細は [docs/mapping-encryption.md](docs/mapping-encryption.md)）。
    - *不可逆*: `[人名1]` の墨消し（対応表なし）。
    - **安全ゲート**が出力を再走査し、生の値が残っていれば警告します。
 5. **逆置換**: AI の返答と対応表を貼り付けて実名に戻します。

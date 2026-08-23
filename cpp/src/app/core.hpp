@@ -17,6 +17,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -277,18 +278,28 @@ class Core {
     }
   }
 
-  /// 直近のサニタイズが作った対応表（JSONL）。無ければ空。
+  /// 直近のサニタイズが作った対応表（平文 JSONL）。無ければ空。
   std::string mapping_jsonl() const { return mapping_io::to_jsonl(last_mapping_); }
+  /// 同じものをパスフレーズで保護した形（version 2 の封筒）。
+  std::string mapping_jsonl_encrypted(std::string_view passphrase) const {
+    return mapping_io::to_jsonl_encrypted(last_mapping_, passphrase);
+  }
   bool has_mapping() const { return !last_mapping_.empty(); }
 
   // ④ 逆置換。text＋貼り付けられた対応表(JSONL) → {ok, restored, leftovers:[...]}
   //
   // 対応表の解釈は mapping_io に任せる。JS でパースしていた頃は GUI と CLI で読み手が
   // 分かれていて、片方で読めるものが他方で読めなかった。
-  json reverse(const std::string& text, const std::string& mapping_text) {
+  json reverse(const std::string& text, const std::string& mapping_text,
+               std::string_view passphrase = {}) {
     std::vector<mapping_io::Entry> value_token;
     try {
-      value_token = mapping_io::parse(mapping_text);
+      value_token = mapping_io::parse(mapping_text, passphrase);
+    } catch (const mapping_io::NeedsPassphrase& e) {
+      // パスフレーズ付きの対応表。UI に入力欄を出させて、同じ要求を再送してもらう。
+      json out = fail_json(e.what());
+      out["needsPassphrase"] = true;
+      return out;
     } catch (const std::exception& e) {
       return fail_json(e.what());  // 行番号つきの書式エラーをそのまま見せる
     }
@@ -307,12 +318,26 @@ class Core {
     }
   }
 
+  /// ファイルピッカーで選ばれた対応表を native 側で保持する。
+  ///
+  /// **この経路で開いた対応表は WebView に一切乗らない。** 保存側（saveMapping）を
+  /// native に寄せたのと対称にするための仕組みで、逆置換のときは JS ではなくこれを使う。
+  void set_picked_mapping(std::string body) { picked_mapping_ = std::move(body); }
+  bool has_picked_mapping() const { return !picked_mapping_.empty(); }
+  const std::string& picked_mapping() const { return picked_mapping_; }
+
   /// 画面の「リセット」。読み込み済みの文書・候補・**対応表**を native 側からも消す。
   /// 対応表は本ツールが作る最も機微な成果物なので、リセットで確実に落とす。
   void clear() {
     results_.clear();
     last_candidates_.clear();
     last_mapping_.clear();
+    wipe_picked_mapping();
+  }
+
+  void wipe_picked_mapping() {
+    if (!picked_mapping_.empty()) sodium_memzero(picked_mapping_.data(), picked_mapping_.size());
+    picked_mapping_.clear();
   }
 
  private:
@@ -386,6 +411,7 @@ class Core {
   std::vector<step5::FileResult> results_;
   std::vector<step2::Candidate> last_candidates_;
   std::vector<mapping_io::Entry> last_mapping_;  // (実値, トークン) 挿入順。可逆時のみ
+  std::string picked_mapping_;  // ピッカーで選ばれた対応表の中身（JS には渡さない）
 };
 
 }  // namespace appcore

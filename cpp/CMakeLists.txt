@@ -206,6 +206,48 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
       copy_runtime_dll(phase4_extract ${PDFIUM_DLL})
     endif()
 
+    # 対応表のパスフレーズ暗号化（Argon2id + XChaCha20-Poly1305）。設計は
+    # docs/mapping-encryption.md。KDF がオフライン総当たりに対する主防御なので、
+    # Argon2id を持つ libsodium を使う（PBKDF2 しか無い OS API では代替できない）。
+    #
+    # Windows: 公式 MSVC プリビルドを third_party に vendoring し**静的リンク**する
+    #          （配布 ZIP に DLL を増やさないため）。
+    # POSIX  : 配布パッケージ（apt: libsodium-dev / brew: libsodium）。
+    #          SODIUM_ROOT を渡せばそこを優先する（自前ビルドを使う開発環境向け）。
+    if(WIN32)
+      set(SODIUM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libsodium)
+      set(SODIUM_INCLUDE ${SODIUM_DIR}/include)
+      set(SODIUM_LIB ${SODIUM_DIR}/x64/Release/v143/static/libsodium.lib)
+      if(NOT EXISTS ${SODIUM_LIB})
+        message(FATAL_ERROR "libsodium が見つかりません: ${SODIUM_LIB}\n"
+                            "cpp/README.md の手順で libsodium-*-msvc.zip を配置してください。")
+      endif()
+      # 静的リンク時は SODIUM_STATIC が必須。未定義だと SODIUM_EXPORT が
+      # __declspec(dllimport) に展開され、リンクが未解決シンボルで落ちる。
+      set(SODIUM_DEFS SODIUM_STATIC=1)
+    else()
+      find_path(SODIUM_INCLUDE sodium.h HINTS ${SODIUM_ROOT}/include)
+      find_library(SODIUM_LIB NAMES sodium HINTS ${SODIUM_ROOT}/lib)
+      if(NOT SODIUM_INCLUDE OR NOT SODIUM_LIB)
+        message(FATAL_ERROR "libsodium が見つかりません。"
+                            "apt install libsodium-dev / brew install libsodium、"
+                            "または -DSODIUM_ROOT=<prefix> を指定してください。")
+      endif()
+      set(SODIUM_DEFS "")
+    endif()
+
+    # 単体試験（オラクル比較の phase* とは別種）。文字コード境界・数値パース・
+    # 対応表の読み書き（平文と暗号化）を、モデル辞書なしで検証する。
+    add_executable(unit_tests src/unit_tests.cpp)
+    target_include_directories(unit_tests PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${SODIUM_INCLUDE})
+    target_link_libraries(unit_tests PRIVATE ${SODIUM_LIB})
+    if(SODIUM_DEFS)
+      target_compile_definitions(unit_tests PRIVATE ${SODIUM_DEFS})
+    endif()
+
     # Phase 4c: .msg（Aspose.Email FOSS vendoring+patch）＋ NER候補一致で判定。
     # Aspose は C++17。gcc13 は -Wchanges-meaning がエラーになるので -fpermissive で回避する。
     # MSVC は該当診断が無い代わり、巨大な生成物・UTF-8 ソース対応に /bigobj /utf-8 が要る。
@@ -244,6 +286,9 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
 
       # CLI（Phase A: prose）。WebView2 不要＝クロスプラットフォーム。msg.hpp を含むため
       # この TU は Aspose を取り込む（GUI facade core.hpp は Aspose 非依存のまま）。
+      #
+      # 対応表のパスフレーズ暗号化（docs/mapping-encryption.md）で libsodium を使う。
+      # SODIUM_INCLUDE / SODIUM_LIB / SODIUM_DEFS は上流の libsodium ブロックで決まる。
       add_executable(jp_pii_sanitizer_cli src/cli/main.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz/miniz.c
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/pugixml/src/pugixml.cpp)
@@ -258,9 +303,14 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/pugixml/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_BINARY_DIR}/pcre2)
+        ${CMAKE_CURRENT_BINARY_DIR}/pcre2
+        ${SODIUM_INCLUDE})
       target_link_libraries(jp_pii_sanitizer_cli PRIVATE
-        ${ASPOSE_LIB} ${ORT_LIB} ${TOKSHIM_LIB} ${SHIM_LIB} pcre2-8 ${PDFIUM_LIB} ${SYS_LIBS})
+        ${ASPOSE_LIB} ${ORT_LIB} ${TOKSHIM_LIB} ${SHIM_LIB} pcre2-8 ${PDFIUM_LIB}
+        ${SODIUM_LIB} ${SYS_LIBS})
+      if(SODIUM_DEFS)
+        target_compile_definitions(jp_pii_sanitizer_cli PRIVATE ${SODIUM_DEFS})
+      endif()
       if(WIN32)
         target_link_libraries(jp_pii_sanitizer_cli PRIVATE shell32)  # CommandLineToArgvW
       endif()
@@ -296,10 +346,12 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/pugixml/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src
-        ${CMAKE_CURRENT_BINARY_DIR}/pcre2)
+        ${CMAKE_CURRENT_BINARY_DIR}/pcre2
+        ${SODIUM_INCLUDE})
+      target_compile_definitions(jp_pii_sanitizer PRIVATE ${SODIUM_DEFS})
       target_link_libraries(jp_pii_sanitizer PRIVATE
         ${WV2_DIR}/x64/WebView2Loader.dll.lib
-        ${ORT_LIB} ${TOKSHIM_LIB} ${SHIM_LIB} pcre2-8 ${PDFIUM_LIB} ${SYS_LIBS}
+        ${ORT_LIB} ${TOKSHIM_LIB} ${SHIM_LIB} pcre2-8 ${PDFIUM_LIB} ${SODIUM_LIB} ${SYS_LIBS}
         version ole32 oleaut32 shlwapi shell32)
       copy_runtime_dll(jp_pii_sanitizer
         ${WV2_DIR}/x64/WebView2Loader.dll ${ORT_DLLS} ${PDFIUM_DLL})

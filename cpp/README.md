@@ -85,6 +85,25 @@ git clone --depth 1 https://github.com/aspose-email-foss/Aspose.Email-FOSS-for-C
 (cd aspose-email && git apply ../../patches/aspose-any_to_string-binary.patch)
 ```
 
+**libsodium** (mapping encryption — Argon2id + XChaCha20-Poly1305) is handled per
+platform rather than vendored for both, because upstream publishes an MSVC build
+but expects a package manager elsewhere:
+
+```bash
+# Linux / macOS: use the distribution package
+sudo apt-get install -y libsodium-dev     # or: brew install libsodium
+# No sudo? build it and point CMake at the prefix:
+#   ./configure --prefix=$HOME/opt/libsodium --disable-shared && make && make install
+#   cmake -S cpp -B cpp/build -DSODIUM_ROOT=$HOME/opt/libsodium
+```
+
+```powershell
+# Windows: the official MSVC build, into cpp/third_party/libsodium/ (statically
+# linked, so no extra DLL lands in the portable ZIP)
+curl -fsSL -o libsodium-msvc.zip https://download.libsodium.org/libsodium/releases/libsodium-1.0.20-stable-msvc.zip
+Expand-Archive libsodium-msvc.zip -DestinationPath . ; Remove-Item libsodium-msvc.zip
+```
+
 The patch fixes `any_to_string()` returning empty for PT_BINARY (a real Outlook
 HTML body cannot be read otherwise). To build
 the Windows GUI you also need the WebView2 SDK (NuGet `Microsoft.Web.WebView2`

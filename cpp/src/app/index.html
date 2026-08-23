@@ -83,7 +83,13 @@
    <h3>逆置換（社内AIの出力＋対応表 → 実名）</h3>
    <p style="font-size:12px;color:#666;margin:0 0 8px">社内AIが返したトークン入りテキストと、サニタイズ時に保存した対応表(.jsonl)の中身を貼り付けて実名に戻します。</p>
    <textarea id="rvtext" rows="8" placeholder="トークン入りテキスト（{{PERSON_1}} 等）"></textarea>
-   <textarea id="rvmap" rows="5" placeholder='対応表 JSONL: {"token":"{{PERSON_1}}","original":"..."} を1行1件'></textarea>
+   <div class="rowbtns"><button class="sec" id="rvpick">📂 対応表ファイルを選ぶ</button>
+     <span id="rvpicked" style="font-size:12px;color:#0a7d64"></span></div>
+   <textarea id="rvmap" rows="5" placeholder='または対応表を貼り付け: {"token":"{{PERSON_1}}","original":"..."} を1行1件'></textarea>
+   <div id="rvpassbox" style="display:none;margin:6px 0">
+     <div class="madd"><input id="rvpass" type="password" placeholder="対応表のパスフレーズ">
+       <button class="sec" id="rvpassShow">👁 表示</button></div>
+   </div>
    <div><button class="sec" id="rv">実名に戻す</button></div>
    <div id="rvout"></div>
  </div>
@@ -95,6 +101,22 @@
  // 以前は JS が CSV を組み立てていたため、GUI が保存した対応表を CLI の restore が
  // 読めなかった。表示はネイティブが返した文字列をそのまま出すだけにする。
  const baseName=p=>p.replace(/^.*[\\/]/,'');
+ // 強いパスフレーズを 1 クリックで作る。強度の強制はしない代わりに、強い方を最短手数に置く。
+ // 紛らわしい文字（I L O 0 1）を外し 5 文字 × 4 グループにするのは、紙に書き写せるようにするため。
+ // 20 文字 × 31 通り ≒ 99 bit。
+ // **Math.random() は使わない**（予測可能で、生成ボタンが機能全体の最弱点になる）。
+ // 剰余バイアスを避けるため、範囲外のバイトは捨てて引き直す。
+ function genPassphrase(){
+   const alpha='ABCDEFGHJKMNPQRSTUVWXYZ23456789';   // I L O 0 1 を除外（31文字）
+   const limit=Math.floor(256/alpha.length)*alpha.length;  // 248 未満だけ採用
+   const out=[];
+   while(out.length<20){
+     const buf=new Uint8Array(32); crypto.getRandomValues(buf);
+     for(const b of buf){ if(b<limit && out.length<20) out.push(alpha[b%alpha.length]); }
+   }
+   return out.slice(0,5).join('')+'-'+out.slice(5,10).join('')+'-'
+        + out.slice(10,15).join('')+'-'+out.slice(15,20).join('');
+ }
  const $=id=>document.getElementById(id);
  const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
  const send=o=>{o.id=seq++; window.chrome.webview.postMessage(JSON.stringify(o)); return o.id;};
@@ -220,10 +242,17 @@
      h+='<textarea rows="12" readonly>'+esc(lastSanitized)+'</textarea>';
      if(mappingJsonl){
        h+='<h3>対応表（最高機密・可逆時のみ）</h3>';
+       // パスフレーズ保護は既定オフ。チェックしたときだけ入力欄が出る。
+       h+='<div><label><input type="checkbox" id="encChk"> パスフレーズで保護する</label></div>';
+       h+='<div id="encBox" style="display:none;margin:6px 0">'+
+          '<div class="madd"><input id="encPass" type="password" placeholder="パスフレーズ">'+
+          '<button class="sec" id="encGen">🎲 生成</button>'+
+          '<button class="sec" id="encShow">👁 表示</button></div>'+
+          '<div style="font-size:12px;color:#c00">このパスフレーズがないと、サニタイズした内容を元に戻せません。</div>'+
+          '</div>';
        h+='<div class="rowbtns"><button id="dlMap">⬇ 対応表を保存 (.jsonl)</button>'+
           '<span style="font-size:12px;color:#c00">※AIに渡さず厳重管理</span></div>';
        h+='<div style="font-size:12px;color:#666;margin-bottom:4px">'+
-          'この対応表が無いと実名に戻せません。閉じる前に保存してください。'+
           'コマンドライン版の <code>restore --mapping</code> にそのまま渡せます。</div>';
        h+='<textarea rows="8" readonly>'+esc(mappingJsonl)+'</textarea>';
      }
@@ -232,12 +261,35 @@
      $('resultBody').innerHTML=h;
      $('dlText').onclick=()=>send({cmd:'saveFile', name:docBase+'_sanitized.txt', content:lastSanitized});
      $('back').onclick=()=>switchTab('san');
+     if($('encChk')){
+       $('encChk').onchange=()=>{ $('encBox').style.display=$('encChk').checked?'block':'none'; };
+       $('encGen').onclick=()=>{ $('encPass').value=genPassphrase(); $('encPass').type='text'; };
+       $('encShow').onclick=()=>{ $('encPass').type = $('encPass').type==='password'?'text':'password'; };
+     }
      // 保存は本文を渡さない。native が Core の対応表を mapping_io で直接書き出す。
-     if($('dlMap')) $('dlMap').onclick=()=>send({cmd:'saveMapping', name:docBase+'_mapping.jsonl'});
+     // パスフレーズは JS → native の一方向で、送信後すぐ画面から消す。
+     if($('dlMap')) $('dlMap').onclick=()=>{
+       const on=$('encChk') && $('encChk').checked;
+       const pass=on ? $('encPass').value : '';
+       if(on && !pass){ $('saveMsg').textContent='パスフレーズを入力してください。'; return; }
+       send({cmd:'saveMapping', name:docBase+'_mapping.jsonl', passphrase:pass});
+       if(on){ $('encPass').value=''; $('encPass').type='password'; }
+     };
      switchTab('result');
+   } else if(m.type==='pickedMapping'){
+     if(m.cleared) return;
+     if(!m.ok){ if(!m.cancelled) $('rvout').innerHTML='<div class="leak">'+esc(m.error||'対応表を読めませんでした')+'</div>'; return; }
+     mapPicked=true; $('rvmap').value='';
+     $('rvpicked').textContent='選択中: '+m.name+(m.encrypted?'（パスフレーズ保護）':'');
+     $('rvpassbox').style.display = m.encrypted ? 'block' : 'none';
+     $('rvout').innerHTML='';
    } else if(m.type==='reverse'){
      // 対応表の書式エラー（行番号つき）はここに出る。黙って 0 件成功にしない。
-     if(!m.ok){ $('rvout').innerHTML='<div class="leak">'+esc(m.error||'逆置換に失敗しました')+'</div>'; return; }
+     if(!m.ok){
+       // パスフレーズ保護されていた場合は入力欄を出して、同じ操作をやり直してもらう
+       if(m.needsPassphrase){ $('rvpassbox').style.display='block'; $('rvpass').focus(); }
+       $('rvout').innerHTML='<div class="leak">'+esc(m.error||'逆置換に失敗しました')+'</div>'; return;
+     }
      let h='<h3>逆置換結果</h3>';
      if((m.leftovers||[]).length) h+='<div class="leak">未置換トークン: '+m.leftovers.join(', ')+'</div>';
      h+='<textarea rows="6">'+esc(m.restored||'')+'</textarea>';
@@ -262,6 +314,20 @@
  $('san').onclick=()=>{ const rev=document.querySelector('input[name=rev]:checked').value==='1';
    send({cmd:'sanitize', confirmed:currentConfirmed(), reversible:rev}); };
  // 対応表は解釈せずそのままネイティブへ渡す（読み手は CLI と同じ mapping_io）。
- $('rv').onclick=()=>send({cmd:'reverse', text:$('rvtext').value, mappingText:$('rvmap').value});
+ // ピッカーで選んだ場合は native 側が中身を保持しているので、JS は一切触らない。
+ let mapPicked=false;
+ $('rvpick').onclick=()=>send({cmd:'pickMapping'});
+ $('rvpassShow').onclick=()=>{ $('rvpass').type = $('rvpass').type==='password'?'text':'password'; };
+ $('rvmap').addEventListener('input', ()=>{
+   // 貼り付けに切り替えたら、native 側が保持している対応表は捨てる
+   if(mapPicked && $('rvmap').value){ mapPicked=false; $('rvpicked').textContent='';
+     $('rvpassbox').style.display='none'; send({cmd:'clearPickedMapping'}); }
+ });
+ $('rv').onclick=()=>{
+   const pass=$('rvpass').value;
+   send({cmd:'reverse', text:$('rvtext').value, usePicked:mapPicked,
+         mappingText: mapPicked ? '' : $('rvmap').value, passphrase:pass});
+   $('rvpass').value=''; $('rvpass').type='password';
+ };
 </script>
 </body></html>

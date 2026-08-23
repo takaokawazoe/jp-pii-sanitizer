@@ -8,6 +8,7 @@
 //   壊れていたのは自前の std::ifstream 経路（read_file）だけ。
 #pragma once
 
+#include <cstdio>
 #include <fstream>
 #include <ios>
 #include <sstream>
@@ -65,6 +66,19 @@ inline std::string read_all(const std::string& path) {
 inline bool exists(const std::string& path) {
   std::ifstream f = open_read(path);
   return f.good();
+}
+
+/// 削除。成否を返す。
+///
+/// **std::remove を直接使わないこと。** MSVC はナローパスを ANSI(cp932) として
+/// 解釈するので、日本語名のファイルを消せずに残す（実測: 単体試験の一時ファイルが
+/// 消えずに作業ツリーに散らかった）。
+inline bool remove_file(const std::string& path) {
+#ifdef _WIN32
+  return ::DeleteFileW(widen(path).c_str()) != 0;
+#else
+  return std::remove(path.c_str()) == 0;
+#endif
 }
 
 /// 書き出し。成否を返す。

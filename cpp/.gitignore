@@ -16,6 +16,7 @@ third_party/miniz/
 third_party/pugixml/
 third_party/pdfium/
 third_party/aspose-email/
+third_party/libsodium/
 
 # Python のキャッシュ
 tools/__pycache__/

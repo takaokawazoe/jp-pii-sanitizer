@@ -21,6 +21,8 @@
 
 #include "WebView2.h"
 
+#include <sodium.h>  // sodium_memzero（パスフレーズの後始末）
+
 #include <fstream>
 #include <string>
 #include <vector>
@@ -125,6 +127,39 @@ std::vector<std::string> pick_files() {
     }
   }
   return out;
+}
+
+// ---- 対応表を1つだけ選ぶダイアログ（復元時のファイルピッカー） ----
+std::string pick_file_one(const wchar_t* label, const wchar_t* spec) {
+  ComPtr<IFileOpenDialog> dlg;
+  if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                              IID_PPV_ARGS(&dlg))))
+    return {};
+  DWORD opts = 0;
+  dlg->GetOptions(&opts);
+  dlg->SetOptions((opts & ~static_cast<DWORD>(FOS_ALLOWMULTISELECT)) | FOS_FILEMUSTEXIST |
+                  FOS_FORCEFILESYSTEM);
+  COMDLG_FILTERSPEC filters[] = {{label, spec}, {L"すべて", L"*.*"}};
+  dlg->SetFileTypes(2, filters);
+  if (FAILED(dlg->Show(g_hwnd))) return {};  // キャンセル含む
+  ComPtr<IShellItem> item;
+  if (FAILED(dlg->GetResult(&item))) return {};
+  LPWSTR path = nullptr;
+  if (FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &path)) || !path) return {};
+  const std::string out = to_utf8(path);
+  CoTaskMemFree(path);
+  return out;
+}
+
+std::string basename_utf8(const std::string& path) {
+  const auto slash = path.find_last_of("/\\");
+  return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+/// パスフレーズを使い終わったら消す。スワップ・休止までは届かない best-effort。
+void wipe(std::string& s) {
+  if (!s.empty()) sodium_memzero(s.data(), s.size());
+  s.clear();
 }
 
 void post_json(const json& j) {
@@ -245,21 +280,63 @@ void dispatch_command(const json& req, const std::string& cmd, int id) {
     r["id"] = id; r["type"] = "sanitize";
     post_json(r);
   } else if (cmd == "reverse") {
-    // 貼り付けられた対応表は生テキストのまま渡す。解釈は mapping_io（CLI と同じ読み手）。
+    // 対応表の解釈は mapping_io（CLI と同じ読み手）。
+    // ピッカーで選ばれていれば native 保持の中身を使い、JS からは受け取らない。
+    std::string pass = req.value("passphrase", std::string());
+    const bool use_picked = req.value("usePicked", false) && g_core->has_picked_mapping();
     auto r = g_core->reverse(req.value("text", std::string()),
-                             req.value("mappingText", std::string()));
+                             use_picked ? g_core->picked_mapping()
+                                        : req.value("mappingText", std::string()),
+                             pass);
+    wipe(pass);
     r["id"] = id; r["type"] = "reverse";
     post_json(r);
+  } else if (cmd == "pickMapping") {
+    // 対応表をファイルから読む。中身は native が保持し、JS へは渡さない
+    // （保存側を native に寄せたのと対称）。
+    const auto picked = pick_file_one(L"対応表", L"*.jsonl");
+    if (picked.empty()) {
+      resp["ok"] = false;
+      resp["cancelled"] = true;
+    } else {
+      const std::string body = fileio::read_all(picked);
+      if (body.empty()) {
+        resp["ok"] = false;
+        resp["error"] = "対応表を読めませんでした。";
+      } else {
+        g_core->set_picked_mapping(body);
+        resp["ok"] = true;
+        resp["name"] = basename_utf8(picked);          // 表示用のファイル名だけ返す
+        resp["encrypted"] = mapping_io::is_encrypted(body);
+      }
+    }
+    resp["type"] = "pickedMapping";
+    post_json(resp);
+  } else if (cmd == "clearPickedMapping") {
+    g_core->wipe_picked_mapping();
+    resp["type"] = "pickedMapping";
+    resp["ok"] = true;
+    resp["cleared"] = true;
+    post_json(resp);
   } else if (cmd == "saveMapping") {
     // 対応表は native が直接シリアライズして書く。JS には保存用の文字列を作らせない
-    // （書式を 1 本に保つため。将来ここを暗号化した封筒に差し替える）。
+    // （書式を 1 本に保つため）。パスフレーズがあれば封筒に入れて書く。
+    std::string pass = req.value("passphrase", std::string());
     if (!g_core->has_mapping()) {
       resp["ok"] = false;
       resp["error"] = "保存できる対応表がありません（可逆モードでサニタイズしてください）。";
     } else {
-      resp["ok"] = save_file(to_wide(req.value("name", std::string("mapping.jsonl"))),
-                             g_core->mapping_jsonl());
+      try {
+        // fail closed: 暗号化に失敗したら平文で書き出さない。
+        const std::string body =
+            pass.empty() ? g_core->mapping_jsonl() : g_core->mapping_jsonl_encrypted(pass);
+        resp["ok"] = save_file(to_wide(req.value("name", std::string("mapping.jsonl"))), body);
+      } catch (const std::exception& e) {
+        resp["ok"] = false;
+        resp["error"] = std::string("対応表を保護できませんでした: ") + e.what();
+      }
     }
+    wipe(pass);
     resp["type"] = "save";
     post_json(resp);
   } else if (cmd == "reset") {
@@ -319,6 +396,21 @@ void run_selftest() {
     roundtrip = rev.value("ok", false) && nleft == 0;
     log_line(L"reverse: ok=" + std::to_wstring((int)rev.value("ok", false)) +
              L" leftovers=" + std::to_wstring(nleft));
+
+    // パスフレーズ保護版も同じ場所に書く。保存ダイアログを出さずに「GUI が保存するのと
+    // 同じ実ファイル」を得られるので、CLI の restore に渡して相互運用を確認できる。
+    const std::string kSelftestPass = "selftest-passphrase";
+    const std::string enc = g_core->mapping_jsonl_encrypted(kSelftestPass);
+    const std::wstring epath = g_selftest_log + L".mapping.enc.jsonl";
+    { std::ofstream ef(epath, std::ios::binary); ef.write(enc.data(), (std::streamsize)enc.size()); }
+    auto rev2 = g_core->reverse(san.value("sanitized", std::string()), enc, kSelftestPass);
+    // パスフレーズ無しでは needsPassphrase が立つこと（＝黙って 0 件成功しない）
+    auto rev3 = g_core->reverse(san.value("sanitized", std::string()), enc);
+    const bool enc_ok = rev2.value("ok", false) &&
+                        rev2.value("leftovers", json::array()).empty() &&
+                        !rev3.value("ok", true) && rev3.value("needsPassphrase", false);
+    log_line(std::wstring(L"encrypted mapping: ") + (enc_ok ? L"OK" : L"NG"));
+    roundtrip = roundtrip && enc_ok;
   }
 
   const bool pass = ncand > 0 && nleak == 0 && nmap > 0 && roundtrip;
@@ -353,6 +445,21 @@ HRESULT on_controller_created(HRESULT result, ICoreWebView2Controller* controlle
   g_controller = controller;
   g_controller->get_CoreWebView2(&g_webview);
   resize_to_client();
+
+  // **オートフィルを既定に任せず明示的に切る。** IsGeneralAutofillEnabled は既定が
+  // 有効で、放置するとパスフレーズがフォームデータとして %LOCALAPPDATA% 配下の
+  // ユーザーデータフォルダに永続化されうる。対応表のパスフレーズを入力欄で受ける
+  // 設計（docs/mapping-encryption.md 判断 7）で唯一残る at-rest の露出がここ。
+  {
+    ComPtr<ICoreWebView2Settings> settings;
+    if (SUCCEEDED(g_webview->get_Settings(&settings))) {
+      ComPtr<ICoreWebView2Settings4> s4;
+      if (SUCCEEDED(settings.As(&s4)) && s4) {
+        s4->put_IsGeneralAutofillEnabled(FALSE);
+        s4->put_IsPasswordAutosaveEnabled(FALSE);
+      }
+    }
+  }
 
   EventRegistrationToken tok{};
   g_webview->add_WebMessageReceived(

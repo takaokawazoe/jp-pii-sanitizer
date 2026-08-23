@@ -2,10 +2,10 @@
 
 **Language:** English (below) · [日本語](#日本語)
 
-> **Status: design only. Nothing here is implemented yet.**
-> The mapping format is currently written in plaintext JSONL (`version 1`). This
-> document records the decisions taken before writing any code, so the shape —
-> and the reasoning behind it — survives.
+> **Status: implemented.** Opt-in; the default is still an unencrypted mapping.
+> GUI: a *"パスフレーズで保護する"* checkbox on the result screen.
+> CLI: `mask --encrypt-mapping`. This document keeps the reasoning behind the
+> shape, including the alternatives that were considered and dropped.
 
 The mapping (token ↔ real value) is the most sensitive artifact this tool
 produces, and [SECURITY.md](../SECURITY.md) already names "the mapping escaping
@@ -218,9 +218,9 @@ reproduces the same mapping; different choices produce different numbering.
 
 ## 日本語
 
-> **状態: 設計のみ。まだ何も実装されていません。**
-> 対応表は現在、平文の JSONL（`version 1`）で書かれています。この文書は、コードを
-> 書く前に決めた内容とその理由を残すためのものです。
+> **状態: 実装済み。** 既定は暗号化なしのままで、明示操作でのみ有効になります。
+> GUI は結果画面の「パスフレーズで保護する」、CLI は `mask --encrypt-mapping`。
+> この文書は、その形に至った理由（検討して落とした案を含む）を残すためのものです。
 
 対応表（トークン ↔ 実値）は本ツールが生む最も機微な成果物で、
 [SECURITY.md](../SECURITY.md) も「対応表が意図した境界の外へ出ること」を

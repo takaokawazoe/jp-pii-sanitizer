@@ -32,8 +32,11 @@
 #include <windows.h>
 #include <shellapi.h>  // CommandLineToArgvW（Windows は argv が cp932 なので UTF-16 から作り直す）
 #else
+#include <termios.h>   // パスフレーズ入力のエコー抑止
 #include <unistd.h>
 #endif
+
+#include <sodium.h>  // sodium_memzero（パスフレーズの後始末）
 
 #include "extractors.hpp"
 #include "file_io.hpp"
@@ -119,6 +122,59 @@ std::string read_stream(std::istream& in) {
   std::ostringstream ss;
   ss << in.rdbuf();
   return ss.str();
+}
+
+// ---------------------------------------------------------------- passphrase
+// 対応表のパスフレーズ（docs/mapping-encryption.md）。
+//
+// **`--passphrase` のような平文フラグは作らない。** プロセス一覧とシェル履歴に残るため。
+// 受け口はファイルか端末入力のみ。端末入力はエコーを止める。
+std::string read_passphrase_from_file(const std::string& path) {
+  const std::string body = fileio::read_all(path);
+  if (body.empty() && !file_exists(path))
+    throw std::runtime_error("パスフレーズファイルが読めません: " + path);
+  // **BOM を落とすこと。** Windows のエディタ（メモ帳等）は UTF-8 保存で BOM を付ける。
+  // 残したままだと、同じ文字列を端末で打ったときと別のパスフレーズになり、
+  // 「合っているはずなのに開けない」という追いにくい失敗になる（実測で踏んだ）。
+  std::string s = mapping_io::detail::strip_bom(body);
+  // 1行目だけを使う（末尾の改行はエディタが必ず付けるので落とす）
+  const auto nl = s.find('\n');
+  if (nl != std::string::npos) s.resize(nl);
+  if (!s.empty() && s.back() == '\r') s.pop_back();
+  return s;
+}
+
+std::string prompt_passphrase(const char* label) {
+  std::fprintf(stderr, "%s", label);
+  std::fflush(stderr);
+  std::string s;
+#ifdef _WIN32
+  HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+  DWORD mode = 0;
+  const bool tty = (h != INVALID_HANDLE_VALUE) && GetConsoleMode(h, &mode);
+  if (tty) SetConsoleMode(h, mode & ~static_cast<DWORD>(ENABLE_ECHO_INPUT));
+  std::getline(std::cin, s);
+  if (tty) SetConsoleMode(h, mode);
+#else
+  termios old{};
+  const bool tty = ::tcgetattr(STDIN_FILENO, &old) == 0;
+  if (tty) {
+    termios quiet = old;
+    quiet.c_lflag &= ~static_cast<tcflag_t>(ECHO);
+    ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &quiet);
+  }
+  std::getline(std::cin, s);
+  if (tty) ::tcsetattr(STDIN_FILENO, TCSAFLUSH, &old);
+#endif
+  std::fprintf(stderr, "\n");
+  if (!s.empty() && s.back() == '\r') s.pop_back();
+  return s;
+}
+
+/// 使い終わったパスフレーズを消す。スワップ・休止までは届かない best-effort。
+void wipe(std::string& s) {
+  if (!s.empty()) sodium_memzero(s.data(), s.size());
+  s.clear();
 }
 
 // ---------------------------------------------------------------- engine
@@ -482,11 +538,23 @@ std::vector<tokenizer::ConfirmedTerm> read_candidates_jsonl(const std::string& p
 
 // 対応表の読み書きは mapping_io.hpp（GUI と共有）。ここはファイル入出力の薄い層だけ。
 // 返り: value -> token（load_mapping が要求する並び）
-std::vector<mapping_io::Entry> read_mapping_file(const std::string& path) {
+std::vector<mapping_io::Entry> read_mapping_file(const std::string& path,
+                                                 const std::string& passphrase_file) {
   const std::string body = fileio::read_all(path);
   if (body.empty() && !file_exists(path))
     throw std::runtime_error("対応表が読めません: " + path);
-  return mapping_io::parse(body);
+  if (!mapping_io::is_encrypted(body)) return mapping_io::parse(body);
+
+  std::string pass = passphrase_file.empty() ? prompt_passphrase("対応表のパスフレーズ: ")
+                                             : read_passphrase_from_file(passphrase_file);
+  try {
+    auto out = mapping_io::parse(body, pass);
+    wipe(pass);
+    return out;
+  } catch (...) {
+    wipe(pass);
+    throw;
+  }
 }
 
 // ---------------------------------------------------------------- output sink
@@ -511,6 +579,9 @@ struct Args {
   std::vector<std::string> files;
   std::string out, candidates, mapping, input, data;
   bool reversible = false;
+  // 対応表のパスフレーズ保護（docs/mapping-encryption.md）。既定はオフ。
+  bool encrypt_mapping = false;   // --encrypt-mapping
+  std::string passphrase_file;    // --passphrase-file（無ければ端末から読む）
   // 表オプション（Phase B）
   std::string tables;          // --tables tables.jsonl（複数ファイル/シートの列指定）
   std::string tables_out;      // --tables-out（detect が csv/xlsx の列雛形を書く先）
@@ -552,11 +623,13 @@ Args parse_args(int argc, char** argv) {
     else if (t == "--input" || t == "-i") a.input = need(i);
     else if (t == "--data") a.data = need(i);
     else if (t == "--reversible") a.reversible = true;
+    else if (t == "--encrypt-mapping") a.encrypt_mapping = true;
+    else if (t == "--passphrase-file") a.passphrase_file = need(i);
     else if (t == "--tables") a.tables = need(i);
     else if (t == "--tables-out") a.tables_out = need(i);
     else if (t == "--table") a.table = true;
     else if (t == "--sheet") a.sheet = need(i);
-    else if (t == "--header-row") a.header_row = std::stoi(need(i));
+    else if (t == "--header-row") a.header_row = numparse::to_int(need(i), 0);
     else if (t == "--name-cols") a.name_cols = split_commas(need(i));
     else if (t == "--company-cols") a.company_cols = split_commas(need(i));
     else if (!t.empty() && t[0] == '-') die("不明なオプション: " + t);
@@ -665,10 +738,31 @@ int cmd_mask(const Args& a) {
     if (a.mapping.empty()) {
       std::fprintf(stderr, "warning: --reversible ですが --mapping が無いので対応表を書き出しません（復元不可）\n");
     } else {
+      // --encrypt-mapping のときだけパスフレーズで保護する。既定は平文のまま
+      // （version 1 なので、この機能を知らない旧ビルドでもそのまま読める）。
+      std::string jsonl;
+      if (a.encrypt_mapping) {
+        std::string pass = a.passphrase_file.empty()
+                               ? prompt_passphrase("対応表のパスフレーズ: ")
+                               : read_passphrase_from_file(a.passphrase_file);
+        // fail closed: 暗号化に失敗したら平文で書き出さず、何も書かずに落とす。
+        try {
+          jsonl = mapping_io::to_jsonl_encrypted(tok.mapping_ordered(), pass);
+        } catch (...) {
+          wipe(pass);
+          throw;
+        }
+        wipe(pass);
+      } else {
+        jsonl = mapping_io::to_jsonl(tok.mapping_ordered());
+      }
       std::ofstream mf = fileio::open_write(a.mapping);  // 日本語パス対応
       if (!mf) die("対応表を開けません: " + a.mapping);
-      const std::string jsonl = mapping_io::to_jsonl(tok.mapping_ordered());
       mf.write(jsonl.data(), static_cast<std::streamsize>(jsonl.size()));
+      if (a.encrypt_mapping)
+        std::fprintf(stderr,
+                     "mask: 対応表をパスフレーズで保護しました。"
+                     "このパスフレーズがないと、サニタイズした内容を元に戻せません。\n");
     }
   }
 
@@ -682,7 +776,7 @@ int cmd_mask(const Args& a) {
 
 int cmd_restore(const Args& a) {
   if (a.mapping.empty()) die("restore: --mapping が必要です");
-  const auto value_token = read_mapping_file(a.mapping);
+  const auto value_token = read_mapping_file(a.mapping, a.passphrase_file);
   std::string text;
   if (!a.input.empty()) {
     text = fileio::read_all(a.input);
@@ -711,6 +805,11 @@ void print_usage() {
     "  mask    <files...> [--candidates cand.jsonl] [--reversible --mapping map.jsonl]\n"
     "                     [-o out.txt] [--data DIR]\n"
     "  restore --mapping map.jsonl [-i in.txt] [-o out.txt]\n"
+    "\n"
+    "  対応表のパスフレーズ保護（既定はオフ）\n"
+    "    --encrypt-mapping                    mask: 対応表を暗号化して書く\n"
+    "    --passphrase-file F                  パスフレーズを F の 1 行目から読む\n"
+    "                                         （省略時は端末から入力・エコーなし）\n"
     "\n"
     "  data tables (csv/xlsx): mask/detect も同じ 1 呼び出しで prose と対応表を共有\n"
     "    --tables tables.jsonl                per-file 列指定 {file,sheet,header_row,name_cols,company_cols}\n"

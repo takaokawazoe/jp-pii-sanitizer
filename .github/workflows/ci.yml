@@ -22,7 +22,9 @@ jobs:
       - name: apt dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake ninja-build pkg-config unzip curl
+          # libsodium: 対応表のパスフレーズ暗号化（Argon2id + XChaCha20-Poly1305）
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config unzip curl \
+                                  libsodium-dev
 
       - name: rust toolchain (tokenizer / sudachi shims)
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -64,6 +66,10 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build
 
+      - name: unit tests (encoding boundaries, mapping I/O incl. encryption)
+        working-directory: cpp
+        run: ./build/unit_tests
+
       - name: conformance tests (Python-parity oracles)
         working-directory: cpp
         run: |
@@ -91,3 +97,25 @@ jobs:
           ! grep -q '山田太郎' /tmp/masked.txt
           ./build/jp-pii-sanitizer-cli restore --mapping /tmp/map.jsonl -i /tmp/masked.txt -o /tmp/restored.txt
           grep -q '山田太郎' /tmp/restored.txt
+
+      - name: CLI smoke (passphrase-protected mapping)
+        working-directory: cpp
+        run: |
+          set -euxo pipefail
+          printf '本日、山田太郎さんが対応しました。\n' > /tmp/p.txt
+          printf '%s\n' '{"type":"PERSON","text":"山田太郎"}' > /tmp/cand.jsonl
+          printf 'K7QM3-P4XR9-2FTBH-6YN8D\n' > /tmp/pass.txt
+          ./build/jp-pii-sanitizer-cli mask /tmp/p.txt --candidates /tmp/cand.jsonl \
+              --reversible --encrypt-mapping --passphrase-file /tmp/pass.txt \
+              --mapping /tmp/enc.jsonl --data models -o /tmp/masked2.txt
+          # 対応表は封筒に入っている: 実値もトークンも平文では現れない
+          ! grep -q '山田太郎' /tmp/enc.jsonl
+          ! grep -q 'PERSON_1' /tmp/enc.jsonl
+          grep -q '"version":2' /tmp/enc.jsonl
+          # 正しいパスフレーズで戻せる / 違うパスフレーズは失敗する（0 件成功にしない）
+          ./build/jp-pii-sanitizer-cli restore --mapping /tmp/enc.jsonl -i /tmp/masked2.txt \
+              --passphrase-file /tmp/pass.txt -o /tmp/restored2.txt
+          grep -q '山田太郎' /tmp/restored2.txt
+          printf 'wrong\n' > /tmp/bad.txt
+          ! ./build/jp-pii-sanitizer-cli restore --mapping /tmp/enc.jsonl -i /tmp/masked2.txt \
+              --passphrase-file /tmp/bad.txt -o /tmp/nope.txt
