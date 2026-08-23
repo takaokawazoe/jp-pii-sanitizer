@@ -64,6 +64,15 @@ PIIサニタイザ（ポータブル版）
     jp-pii-sanitizer-cli.exe restore --mapping mapping.jsonl -i ai_reply.txt -o final.txt
   詳細は jp-pii-sanitizer-cli.exe --help、および README のCLI節を参照。
 
+■ 対応表のパスフレーズ保護（任意・既定はオフ）
+  対応表は実名とトークンの対応そのものなので、持ち出しや紛失に備えて
+  パスフレーズで保護できます。GUI は結果画面の「パスフレーズで保護する」、
+  CLI は mask に --encrypt-mapping を付けます。
+    jp-pii-sanitizer-cli.exe mask <files...> --reversible --encrypt-mapping \
+        --mapping mapping.jsonl -o masked.txt
+  ※ パスフレーズを紛失すると、サニタイズした内容を元に戻せなくなります
+    （元の文書は影響を受けません）。保存先を控えてください。
+
 ■ 動作環境
   Windows 11 以降（WebView2 ランタイムが標準搭載のため追加インストール不要）
   ※ CLI は WebView2 不要。GUI のみ WebView2 を使います。
