@@ -72,6 +72,8 @@ the GUI. It exposes three commands:
    was restored. Files start with a `{"_meta":{"version":1}}` line — readers that
    predate it ignore it (it carries no `token`/`original`), and an unknown version
    is rejected outright rather than parsed into an empty, innocent-looking mapping.
+   That gate is what a future passphrase-encrypted mapping would ride on — see
+   [mapping-encryption.md](mapping-encryption.md) (design only, not implemented).
 
 ### Pipeline
 
@@ -167,7 +169,9 @@ cross-platform claim is checked on every push, not just asserted.
    落とす。黙って落とすと、利用者が「実名に戻した」と思っているテキストに `{{PERSON_n}}` が
    生き残るため。ファイル先頭には `{"_meta":{"version":1}}` を置く。この行は
    `token`/`original` を持たないので旧リーダーは素通りし、逆に未知バージョンは
-   「空の対応表として正常終了」させず明示的に拒否する。
+   「空の対応表として正常終了」させず明示的に拒否する。将来のパスフレーズ暗号化は
+   この gate に乗る形になる — [mapping-encryption.md](mapping-encryption.md)
+   （設計のみ・未実装）。
 
 ### パイプライン
 
