@@ -73,7 +73,21 @@ the GUI. It exposes three commands:
    predate it ignore it (it carries no `token`/`original`), and an unknown version
    is rejected outright rather than parsed into an empty, innocent-looking mapping.
    That gate is what a future passphrase-encrypted mapping would ride on — see
-   [mapping-encryption.md](mapping-encryption.md) (design only, not implemented).
+   [mapping-encryption.md](mapping-encryption.md).
+
+
+9. **Attachments are listed, never opened.** For `.msg`, the body and the
+   *attachment file names* are processed — names carry PII often enough to matter
+   (`社員名簿_山田太郎_確認用.csv`) — but the attachment bytes are not parsed.
+   This is deliberate, not missing work. Expanding them would mean writing the
+   attachment plaintext to a temp file (miniz and PDFium both want a path), and
+   feeding untrusted, externally-delivered bytes straight into the native parsers
+   — exactly the surface [SECURITY.md](../SECURITY.md) singles out. Not expanding
+   them also loses nothing: an attachment that is never bundled is never sent to
+   the AI, so this is a convenience trade, not a leak. Users who want an
+   attachment processed save it and load it as a normal file. Both the GUI (a
+   modal dialog) and the CLI (a stderr warning) say so explicitly, because
+   silence would read as "attachments were handled".
 
 ### Pipeline
 
@@ -170,8 +184,18 @@ cross-platform claim is checked on every push, not just asserted.
    生き残るため。ファイル先頭には `{"_meta":{"version":1}}` を置く。この行は
    `token`/`original` を持たないので旧リーダーは素通りし、逆に未知バージョンは
    「空の対応表として正常終了」させず明示的に拒否する。将来のパスフレーズ暗号化は
-   この gate に乗る形になる — [mapping-encryption.md](mapping-encryption.md)
-   （設計のみ・未実装）。
+   この gate に乗る形になる — [mapping-encryption.md](mapping-encryption.md)。
+
+
+9. **添付は一覧に出すだけで、開かない。** `.msg` は本文と*添付ファイル名*を対象にする
+   （`社員名簿_山田太郎_確認用.csv` のようにファイル名自体が PII を持つため）が、添付の
+   中身は解析しない。**未実装ではなく意図的な判断**。展開するには添付の平文を一時ファイルへ
+   書く必要があり（miniz も PDFium もパスを要求する）、外部から届いた信頼できないバイト列を
+   そのままネイティブパーサに食わせることになる——[SECURITY.md](../SECURITY.md) が名指しで
+   挙げている面そのもの。しかも展開しなくても失うものは無い: 束ねに入らない添付は AI にも
+   送られないので、これは漏洩ではなく利便性の取引でしかない。添付を処理したい利用者は、
+   保存して普通のファイルとして読み込む。黙っていると「添付も処理された」と読まれるので、
+   GUI はモーダルダイアログで、CLI は stderr で明示する。
 
 ### パイプライン
 

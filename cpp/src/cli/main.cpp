@@ -229,9 +229,10 @@ step5::FileResult ingest(const std::string& path) {
     else if (e == "msg") {
       const auto r = msg::extract_msg(path);
       fr.kind = "msg";
-      fr.text = r.text;
-      for (const auto& c : r.children)  // 添付ファイル名の PII を取りこぼさない
-        if (!c.filename.empty()) fr.text += "\n【添付】" + c.filename;
+      // 本文＋添付ファイル名。**添付の中身は展開しない**（設計判断・docs/cli.md）。
+      // ファイル名自体が PII を持つので検知対象には載せる。GUI と同じヘルパを使う。
+      fr.text = msg::body_with_attachment_names(r);
+      fr.attachments = msg::attachment_names(r);
     }
     else { fr.kind = "skipped"; fr.text = ""; }
   } catch (const std::exception& ex) {
@@ -427,6 +428,13 @@ std::vector<step5::FileResult> ingest_files(const std::vector<std::string>& path
     if (fr.kind == "skipped")
       std::fprintf(stderr, "warning: スキップ: %s%s%s\n", b.c_str(),
                    fr.error.empty() ? "" : " — ", fr.error.c_str());
+    // 添付の**中身は展開しない**（設計判断・docs/cli.md）。黙っていると「添付も処理された」と
+    // 誤解されるので必ず知らせる。添付を対象にしたい利用者は自分で保存して個別に渡す。
+    if (!fr.attachments.empty()) {
+      std::fprintf(stderr, "warning: %s: 添付 %zu 件は中身を処理していません（ファイル名のみ対象）\n",
+                   b.c_str(), fr.attachments.size());
+      for (const auto& n : fr.attachments) std::fprintf(stderr, "           ・%s\n", n.c_str());
+    }
     files.push_back(std::move(fr));
   }
   return files;

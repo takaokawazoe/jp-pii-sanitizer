@@ -5,7 +5,9 @@
 // step2/hf_ner/tokenizer/step5/extractors を組み合わせて JSON を返す。
 //
 // この段の割り切り（最小疎通の次段）:
-//   - msg(.msg/.eml) は Aspose を app TU に持ち込むため後回し（別段で追加）。
+//   - .msg は対応済み（Aspose は app/msg_bridge.cpp に隔離）。**添付の中身は展開しない**
+//     ——添付は利用者が自分で取り出して読み込む方針（docs/cli.md の設計判断）。
+//   - .eml は未対応（C++ に MIME 抽出器が無い）。
 //   - csv は列指定 UI を省き prose 扱い（Python は既定データ表だが、まず end-to-end 優先）。
 // 検知・マスク・逆置換のロジック自体は Phase 0-5 で Python と一致済み（10/10 green）。
 #pragma once
@@ -25,6 +27,7 @@
 #include "file_io.hpp"
 #include "hf_ner.hpp"
 #include "json.hpp"
+#include "app/msg_bridge.hpp"
 #include "mapping_io.hpp"
 #include "ooxml.hpp"
 #include "pdf.hpp"
@@ -120,6 +123,16 @@ class Core {
         else if (e == "xlsx") { fr.kind = "xlsx-prose"; fr.text = ooxml::read_xlsx_prose(p); }
         else if (e == "pdf") { fr.kind = "pdf"; fr.text = pdf::extract_pdf(p); }
         else if (e == "txt" || e == "csv" || e == "md") { fr.kind = "text"; fr.text = extractors::extract_plain(p); }
+        else if (e == "msg") {
+          // 添付は**中身を展開しない**（設計判断・docs/cli.md）。本文＋添付ファイル名までが対象で、
+          // 添付を処理したい利用者は自分で保存して個別に読み込む。attachments は警告表示用。
+          const auto r = msgbridge::extract(p);
+          fr.kind = "msg";
+          fr.text = r.text;
+          fr.attachments = r.attachments;
+          fr.error = r.error;
+          if (!r.error.empty()) fr.kind = "skipped";
+        }
         else {
           // 未対応拡張子は**理由を出す**。以前は無言で空ブロックになり、利用者からは
           // 「読み込んだのに何も出ない」としか見えなかった（.msg/.eml は CLI のみ対応）。
@@ -380,6 +393,7 @@ class Core {
       b["source"] = fr.source;
       b["kind"] = fr.kind;
       if (!fr.error.empty()) b["error"] = fr.error;
+      if (!fr.attachments.empty()) b["attachments"] = fr.attachments;  // 中身は未展開
       if (with_text) b["text"] = fr.text;
       b["spans"] = spans_to_json(tokenizer::find_mask_spans(fr.text, conf, sd_.get()));
       blocks.push_back(b);

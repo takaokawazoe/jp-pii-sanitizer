@@ -109,7 +109,7 @@ std::vector<std::string> pick_files() {
   dlg->GetOptions(&opts);
   dlg->SetOptions(opts | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM);
   COMDLG_FILTERSPEC filters[] = {
-      {L"対応ファイル", L"*.docx;*.pptx;*.xlsx;*.pdf;*.csv;*.txt;*.md"},
+      {L"対応ファイル", L"*.docx;*.pptx;*.xlsx;*.pdf;*.csv;*.txt;*.md;*.msg"},
       {L"すべて", L"*.*"}};
   dlg->SetFileTypes(2, filters);
   if (FAILED(dlg->Show(g_hwnd))) return out;  // キャンセル含む
@@ -160,6 +160,36 @@ std::string basename_utf8(const std::string& path) {
 void wipe(std::string& s) {
   if (!s.empty()) sodium_memzero(s.data(), s.size());
   s.clear();
+}
+
+// ---- 添付があったことを知らせるダイアログ ----
+//
+// **中身を展開しない設計**なので、黙っていると「添付も処理された」と誤解されうる。
+// 画面内の注記だけでは見落とされるため、モーダルで確実に目に入れる。
+//
+// **UI 層に置くこと。** Core の中で出すと --selftest が固まる（selftest は Core を直接叩く）。
+// TaskDialogIndirect は comctl32 v6 のマニフェストが要るので、素の MessageBoxW を使う。
+// 1 回の読み込みにつき 1 回だけ出す（ファイルごとに出すと反射的に閉じる癖がつき、警告の
+// 意味が失われる）。
+void warn_attachments_if_any(const json& blocks) {
+  std::wstring body;
+  int files = 0, total = 0;
+  for (const auto& b : blocks) {
+    const auto it = b.find("attachments");
+    if (it == b.end() || !it->is_array() || it->empty()) continue;
+    ++files;
+    body += L"\n" + to_wide(b.value("source", std::string())) + L"\n";
+    for (const auto& n : *it) {
+      ++total;
+      if (n.is_string()) body += L"    ・" + to_wide(n.get<std::string>()) + L"\n";
+    }
+  }
+  if (files == 0) return;
+  const std::wstring msg =
+      L"読み込んだメールに添付ファイルが " + std::to_wstring(total) + L" 件あります。\n\n" +
+      L"添付の【中身】は処理されません。対象は本文と添付ファイル名までです。\n" +
+      L"添付も対象にしたい場合は、添付を保存してから個別に読み込んでください。\n" + body;
+  MessageBoxW(g_hwnd, msg.c_str(), L"添付ファイルについて", MB_OK | MB_ICONWARNING);
 }
 
 void post_json(const json& j) {
@@ -263,6 +293,7 @@ void dispatch_command(const json& req, const std::string& cmd, int id) {
     auto r = g_core->extract(paths);
     r["id"] = id; r["type"] = "extract";
     post_json(r);
+    warn_attachments_if_any(r.value("blocks", json::array()));
   } else if (cmd == "extractPaths") {
     std::vector<std::string> paths;
     for (const auto& p : array_or_empty(req, "paths"))
@@ -270,6 +301,7 @@ void dispatch_command(const json& req, const std::string& cmd, int id) {
     auto r = g_core->extract(paths);
     r["id"] = id; r["type"] = "extract";
     post_json(r);
+    warn_attachments_if_any(r.value("blocks", json::array()));
   } else if (cmd == "preview") {
     auto r = g_core->preview(parse_confirmed(array_or_empty(req, "confirmed")));
     r["id"] = id; r["type"] = "preview";

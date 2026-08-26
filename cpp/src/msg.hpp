@@ -277,4 +277,26 @@ inline Result extract_msg(const std::string& path) {
   return res;
 }
 
+/// 添付ファイル名だけを取り出す（**中身は展開しない**）。
+///
+/// 添付を自動展開しないのは意図的な設計判断（docs/cli.md）。展開には一時ファイルが要り
+/// （miniz も PDFium もパスを要求する）、メールという外部由来の入力を自動でネイティブ
+/// パーサに食わせることになる。SECURITY.md が挙げる「細工した入力から到達可能な
+/// パーサのメモリ安全性」の面を、わざわざ広げないための判断。
+/// 添付を処理したい利用者は、自分で保存して個別に読み込む。
+inline std::vector<std::string> attachment_names(const Result& r) {
+  std::vector<std::string> out;
+  for (const auto& c : r.children)
+    if (!c.filename.empty()) out.push_back(c.filename);
+  return out;
+}
+
+/// 本文の末尾に添付ファイル名を並べたもの。
+/// **ファイル名自体が PII を持つ**（社員名簿_山田太郎_確認用.csv）ので検知対象に載せる。
+inline std::string body_with_attachment_names(const Result& r) {
+  std::string text = r.text;
+  for (const auto& n : attachment_names(r)) text += "\n【添付】" + n;
+  return text;
+}
+
 }  // namespace msg

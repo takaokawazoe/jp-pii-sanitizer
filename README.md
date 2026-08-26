@@ -20,7 +20,9 @@ rule-based recognizers.
 
 ### What it does
 
-1. **Load** one or more files (`.docx`, `.pptx`, `.xlsx`, `.pdf`, `.csv`, `.txt`).
+1. **Load** one or more files (`.docx`, `.pptx`, `.xlsx`, `.pdf`, `.csv`, `.txt`, `.msg`).
+   For `.msg`, the body and the *attachment file names* are processed; **attachment
+   contents are deliberately not opened** — see [docs/cli.md](docs/cli.md#design-decisions).
 2. **Detect** candidate PII — person names, organizations, addresses, e-mail
    addresses, phone numbers, postal codes. **File names are scanned too**, because
    they are included in the bundled text (`社員名簿_山田太郎_確認用.csv` leaks a name).
@@ -141,7 +143,9 @@ All sample and test data is synthetic — no real personal information is includ
 
 ### できること
 
-1. **読み込み**: 1つ以上のファイル（`.docx` / `.pptx` / `.xlsx` / `.pdf` / `.csv` / `.txt`）。
+1. **読み込み**: 1つ以上のファイル（`.docx` / `.pptx` / `.xlsx` / `.pdf` / `.csv` / `.txt` / `.msg`）。
+   `.msg` は本文と*添付ファイル名*が対象で、**添付の中身は意図的に開きません**
+   （理由は [docs/cli.md](docs/cli.md#日本語)）。
 2. **検出**: 人名・組織名・住所・メールアドレス・電話番号・郵便番号の候補。
    **ファイル名も検出対象**です（束ねたテキストに載るため。`社員名簿_山田太郎_確認用.csv` は氏名の漏洩になります）。
 3. **確定（opt-out）**: 既定は全マスク。残すものだけ*チェックを外し*、検出漏れは*手動で追記*できます。

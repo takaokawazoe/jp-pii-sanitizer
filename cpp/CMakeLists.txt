@@ -330,16 +330,21 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
       # コア（extractors=miniz+pugixml、pdf=PDFium、検知=ONNX+shims+pcre2）を GUI exe に取り込む。
       # msg(Aspose) と csv 列指定は次段（core.hpp の割り切りを参照）。app.rc はアイコン。
       add_executable(jp_pii_sanitizer WIN32 src/app/winmain.cpp src/app/app.rc
+        src/app/msg_bridge.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz/miniz.c
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/pugixml/src/pugixml.cpp)
       # 配布 exe 名はプロジェクト名（jp-pii-sanitizer.exe）にそろえる。CMake ターゲット識別子は
       # ハイフン不可なので jp_pii_sanitizer、出力ファイル名だけハイフンにする。
       set_target_properties(jp_pii_sanitizer PROPERTIES OUTPUT_NAME "jp-pii-sanitizer")
-      add_dependencies(jp_pii_sanitizer tokenizer_shim_build sudachi_shim_build)
+      add_dependencies(jp_pii_sanitizer aspose_build tokenizer_shim_build sudachi_shim_build)
       # UNICODE/_UNICODE: Win32 の TCHAR マクロ（IDC_ARROW 等）を W 系にそろえる（Unicode アプリ既定）
       target_compile_definitions(jp_pii_sanitizer PRIVATE UNICODE _UNICODE)
+      # msg_bridge.cpp だけが Aspose を取り込む。フラグもこの 1 ファイルに閉じ込める。
+      set_source_files_properties(src/app/msg_bridge.cpp PROPERTIES
+        COMPILE_OPTIONS "${ASPOSE_MSG_FLAGS}")
       target_include_directories(jp_pii_sanitizer PRIVATE
         ${WV2_DIR}/include
+        ${ASPOSE_DIR}/include
         ${ORT_DIR}/include
         ${PDFIUM_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
@@ -351,7 +356,7 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
       target_compile_definitions(jp_pii_sanitizer PRIVATE ${SODIUM_DEFS})
       target_link_libraries(jp_pii_sanitizer PRIVATE
         ${WV2_DIR}/x64/WebView2Loader.dll.lib
-        ${ORT_LIB} ${TOKSHIM_LIB} ${SHIM_LIB} pcre2-8 ${PDFIUM_LIB} ${SODIUM_LIB} ${SYS_LIBS}
+        ${ASPOSE_LIB} ${ORT_LIB} ${TOKSHIM_LIB} ${SHIM_LIB} pcre2-8 ${PDFIUM_LIB} ${SODIUM_LIB} ${SYS_LIBS}
         version ole32 oleaut32 shlwapi shell32)
       copy_runtime_dll(jp_pii_sanitizer
         ${WV2_DIR}/x64/WebView2Loader.dll ${ORT_DLLS} ${PDFIUM_DLL})

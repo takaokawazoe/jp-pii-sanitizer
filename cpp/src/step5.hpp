@@ -27,6 +27,10 @@ struct FileResult {
   std::vector<std::vector<std::string>> rows;      // データ表のとき
   std::vector<std::string> name_cols, company_cols;
   bool has_table = false;
+  // 添付ファイル名（.msg/.eml）。**中身は展開しない**——添付は利用者が自分で取り出して
+  // 読み込む方針（docs 参照）。ここに載せるのは「添付があった」ことを警告するためと、
+  // ファイル名自体が PII を持つため（社員名簿_山田太郎_確認用.csv のような例）。
+  std::vector<std::string> attachments;
   // 抽出に失敗した理由（UI/CLI の表示専用）。**text に混ぜてはいけない**——text は
   // そのまま AI 送信テキストへ束ねられるので、例外メッセージが本文に紛れ込む。
   std::string error;
