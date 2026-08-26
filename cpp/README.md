@@ -9,9 +9,17 @@ Build instructions. The rationale behind the design is in [../DESIGN.md](../DESI
 ## English
 
 The core (NER inference, morphology, detection, masking, reverse) and every input
-format (docx/pptx/xlsx/csv/txt/pdf/msg) are ported to C++ and checked stage by
-stage against the Python reference (the oracle). **The conformance tests are
+format (docx/pptx/xlsx/csv/txt/pdf/msg) were ported to C++ and checked stage by
+stage against a Python reference implementation. **The conformance tests are
 green on both WSL/Linux and Windows/MSVC.**
+
+> **On what the oracles mean now.** `cpp/testdata/*_ref.json` were generated from
+> that Python implementation, which reached the numbers below and is now parked —
+> development continues in C++ only. The tests therefore no longer *prove* parity
+> with a second implementation on every run; they pin the behaviour that was
+> verified against it. Read them as regression tests: they catch unintended
+> change, and an intentional change updates them (`phase2_pipeline --update`) with
+> the diff as the thing under review.
 
 | Executable | Checks | Result |
 |---|---|---|
@@ -194,8 +202,15 @@ Build the portable ZIP with `powershell -File tools\package_win.ps1`.
 ## 日本語
 
 中核（NER 推論・形態素・検知・マスク・逆置換）＋全入口形式（docx/pptx/xlsx/csv/txt/pdf/msg）を
-C++ に移植し、各段を Python 参照実装（oracle）と突き合わせて検証している。**適合試験は
+C++ に移植し、各段を Python 参照実装（oracle）と突き合わせて検証した。**適合試験は
 WSL/Linux ＋ Windows(MSVC) の両方で green。**
+
+> **期待値の位置づけ。** `cpp/testdata/*_ref.json` はその Python 実装から生成したもので、
+> 下表の数字はそのとき突き合わせた結果。Python 側は現在休止し、開発は C++ 単独で進めている。
+> したがって試験は毎回「二つの実装が一致すること」を*証明*しているのではなく、**そのとき
+> 検証した挙動を固定している**。回帰試験として読んでほしい——意図しない変化を捕まえるのが
+> 役目で、意図的に変えたときは `phase2_pipeline --update` で期待値を更新し、**差分そのものが
+> レビュー対象**になる。
 
 | 実行ファイル | 試験内容 | 結果 |
 |---|---|---|
@@ -210,7 +225,9 @@ WSL/Linux ＋ Windows(MSVC) の両方で green。**
 | `phase4_msg` | .msg が Python の検出PIIを1つも落とさないか | 平文 10/10 |
 | `phase5_core` | 安全ゲート・ハイライト・束ねが Python と一致するか | spans 5/5・gate 10/10・table OK |
 
-候補一致 = eval 174/175 と同値。GUI アプリ（`jp-pii-sanitizer.exe`・CMake ターゲット `jp_pii_sanitizer`）はこれらの検証済みコアを
+候補一致は、移植時の評価（Python 側 eval 174/175）と同値であることを確認した時点のもの。
+**検知精度そのものを毎回測っているわけではない**（eval ハーネスは C++ に未移植）。
+GUI アプリ（`jp-pii-sanitizer.exe`・CMake ターゲット `jp_pii_sanitizer`）はこれらの検証済みコアを
 WebView2 に載せたもの。
 
 クロスプラットフォームの **CLI** もある — CMake ターゲット `jp_pii_sanitizer_cli`、exe

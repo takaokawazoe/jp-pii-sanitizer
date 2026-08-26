@@ -70,7 +70,9 @@ jobs:
         working-directory: cpp
         run: ./build/unit_tests
 
-      - name: conformance tests (Python-parity oracles)
+      # 期待値は Python 参照実装から生成したもの（cpp/README.md の注記を参照）。
+      # Python 側は休止しており、これらは回帰試験として運用している。
+      - name: conformance tests (pinned behaviour oracles)
         working-directory: cpp
         run: |
           set -euxo pipefail
