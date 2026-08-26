@@ -126,12 +126,12 @@ jobs:
       # 検知精度の測定。適合試験（挙動が変わっていないか）とは別で、こちらは
       # 「どれだけ捕まえられているか」を測る。
       #
-      # **下限（--min-mask / --min-roundtrip）はまだ付けていない。** Linux の実測値を
-      # 見てから決める（手元の測定は Windows/MSVC で、ONNX も PDFium も別ビルドなので
-      # 同じ数字が出る保証がない）。根拠のない閾値を置くより、まず1回測る。
+      # 下限はラチェット。**Windows/MSVC と ubuntu で同一の数値が出ることを実測してから**
+      # 設定した（186/187・往復 5/6・誤検知 0）。ONNX も PDFium も別ビルドなので事前には
+      # 保証が無く、1 回測ってから決めた。
       #
-      # 誤検知（マスクされてはいけない語がマスクされた）だけは閾値ではなく真偽なので、
-      # 下限指定が無くても eval は非ゼロ終了する＝この時点で門が立っている。
+      # 下げるときは意図的な判断として下げること（精度を落とす変更を黙って通さないための門）。
+      # 誤検知は閾値ではなく真偽なので、指定が無くても 1 件でもあれば eval は非ゼロ終了する。
       - name: eval (detection quality)
         working-directory: cpp
-        run: ./build/eval --data models --samples ../samples
+        run: ./build/eval --data models --samples ../samples --min-mask 186 --min-roundtrip 5
