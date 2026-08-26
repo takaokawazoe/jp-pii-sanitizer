@@ -1,7 +1,8 @@
 name: ci
 
 # Builds the whole tree on Linux (proving the platform-independent core + CLI
-# are cross-platform) and runs the conformance suite plus a CLI smoke test.
+# are cross-platform), runs the conformance suite plus CLI smoke tests, and measures
+# detection quality with the eval harness.
 # The GUI target is Windows-only and is not built here.
 
 on:
@@ -121,3 +122,16 @@ jobs:
           printf 'wrong\n' > /tmp/bad.txt
           ! ./build/jp-pii-sanitizer-cli restore --mapping /tmp/enc.jsonl -i /tmp/masked2.txt \
               --passphrase-file /tmp/bad.txt -o /tmp/nope.txt
+
+      # 検知精度の測定。適合試験（挙動が変わっていないか）とは別で、こちらは
+      # 「どれだけ捕まえられているか」を測る。
+      #
+      # **下限（--min-mask / --min-roundtrip）はまだ付けていない。** Linux の実測値を
+      # 見てから決める（手元の測定は Windows/MSVC で、ONNX も PDFium も別ビルドなので
+      # 同じ数字が出る保証がない）。根拠のない閾値を置くより、まず1回測る。
+      #
+      # 誤検知（マスクされてはいけない語がマスクされた）だけは閾値ではなく真偽なので、
+      # 下限指定が無くても eval は非ゼロ終了する＝この時点で門が立っている。
+      - name: eval (detection quality)
+        working-directory: cpp
+        run: ./build/eval --data models --samples ../samples
