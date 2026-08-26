@@ -10,7 +10,9 @@
 // score は候補の並びにも _drop にも使われない（extract_candidates は
 // (種別, -出現数, 表記) で並べる）ので、判定は type/begin/end で行い score は参考表示に留める。
 //
-// 使い方: phase2_hf [candidates_ref.json]
+// 使い方: phase2_hf [--update] [candidates_ref.json]
+//
+// `--update` は hf_spans の期待値を現在の C++ 出力で書き戻す（oracle_io.hpp の注記を参照）。
 
 #include <cstdio>
 #include <fstream>
@@ -19,10 +21,12 @@
 
 #include "hf_ner.hpp"
 #include "json.hpp"
+#include "oracle_io.hpp"
 
 using json = nlohmann::json;
 
 int main(int argc, char** argv) {
+  const bool update = oracle::take_update_flag(argc, argv);
   const std::string ref_path = (argc > 1) ? argv[1] : "testdata/candidates_ref.json";
   std::ifstream f(ref_path);
   if (!f) {
@@ -44,9 +48,26 @@ int main(int argc, char** argv) {
 
   std::size_t ok = 0, ng = 0;
   int shown = 0;
-  for (const auto& c : ref["cases"]) {
+  for (auto& c : ref["cases"]) {
     const auto text = c["text"].get<std::string>();
     const auto got = ner.spans(text);
+
+    if (update) {
+      json arr = json::array();
+      for (const auto& g : got)
+        arr.push_back({{"type", g.type}, {"begin", g.begin}, {"end", g.end}});
+      // **一致しているケースには触らない。** 判定に使うのは type/begin/end だけなので、
+      // 丸ごと書き直すと参考情報の score（Python 由来）を落としてしまう。差分も最小に保つ。
+      const auto& want = c["hf_spans"];
+      bool same = want.is_array() && want.size() == arr.size();
+      for (std::size_t i = 0; same && i < arr.size(); ++i)
+        same = want[i].value("type", std::string()) == got[i].type &&
+               want[i].value("begin", std::size_t(-1)) == got[i].begin &&
+               want[i].value("end", std::size_t(-1)) == got[i].end;
+      if (!same) c["hf_spans"] = arr;
+      continue;
+    }
+
     const auto& want = c["hf_spans"];
 
     if (got.size() != want.size()) {
@@ -81,6 +102,8 @@ int main(int argc, char** argv) {
     }
     std::printf("  %-26s %zu/%zu\n", c["doc"].get<std::string>().c_str(), doc_ok, got.size());
   }
+
+  if (update) return oracle::write(ref_path, ref) ? 0 : 2;
 
   std::printf("\n  hf_spans 一致 %zu/%zu\n", ok, ok + ng);
   const bool pass = (ng == 0 && ok > 0);

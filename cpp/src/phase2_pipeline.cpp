@@ -64,11 +64,18 @@ int main(int argc, char** argv) {
     const auto got = step2::extract_candidates(P, sd, ner, text);
 
     if (update) {
-      // 現在の出力をそのまま期待値にする。判定はせず、書き戻して次のケースへ。
       json arr = json::array();
       for (const auto& g : got)
         arr.push_back({{"text", g.text}, {"type", g.entity_type}, {"count", g.count}});
-      c["candidates"] = arr;
+      // **一致しているケースには触らない。** 差分を「本当に変わったところ」だけに保つ
+      // （差分レビューが唯一の安全装置なので、無関係な行が混ざると意味が薄れる）。
+      const auto& want = c["candidates"];
+      bool same = want.is_array() && want.size() == arr.size();
+      for (std::size_t i = 0; same && i < arr.size(); ++i)
+        same = want[i].value("text", std::string()) == got[i].text &&
+               want[i].value("type", std::string()) == got[i].entity_type &&
+               want[i].value("count", -1) == got[i].count;
+      if (!same) c["candidates"] = arr;
       continue;
     }
 
