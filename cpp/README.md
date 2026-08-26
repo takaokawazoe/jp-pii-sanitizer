@@ -34,7 +34,16 @@ green on both WSL/Linux and Windows/MSVC.**
 | `phase4_msg` | .msg loses none of Python's detected PII | 10/10 |
 | `phase5_core` | safety gate / highlight / bundling match Python | spans 5/5 · gate 10/10 |
 
-Candidate-set equality = the eval result (174/175) by construction. The GUI app
+Candidate-set equality = the eval result (174/175) by construction.
+
+**Detection quality is measured separately, by `eval`** (`./build/eval`, ground truth in
+`samples/eval.jsonl`). Where the conformance tests ask "did the behaviour change?", eval asks
+"how much is actually caught?". It scores three axes — mask rate (recall), false masking
+(precision), and round-trip integrity. Recall alone is not enough, and we know that from
+experience: both of the false-positive bugs fixed recently left the mask rate at 100%. The
+harness reproduces the 174/175 figure the Python evaluation reported at port time.
+
+The GUI app
 (`jp-pii-sanitizer.exe`, CMake target `jp_pii_sanitizer`) is these verified cores hosted in WebView2.
 
 There is also a cross-platform CLI — CMake target `jp_pii_sanitizer_cli`, exe
@@ -226,7 +235,11 @@ WSL/Linux ＋ Windows(MSVC) の両方で green。**
 | `phase5_core` | 安全ゲート・ハイライト・束ねが Python と一致するか | spans 5/5・gate 10/10・table OK |
 
 候補一致は、移植時の評価（Python 側 eval 174/175）と同値であることを確認した時点のもの。
-**検知精度そのものを毎回測っているわけではない**（eval ハーネスは C++ に未移植）。
+**検知精度は `eval` で別途測る**（`./build/eval` ・正解は `samples/eval.jsonl`）。適合試験が
+「挙動が変わっていないか」を見るのに対し、eval は「どれだけ捕まえられているか」を測る。
+測る軸は 3 つ——マスク率(recall)・誤検知(precision)・往復健全性。マスク率だけでは足りない
+ことは実地で分かっている（フィラーの誤検知も、同音の姓による往復破壊も、マスク率は
+100% のままだった）。移植時の Python 評価 174/175 を再現済み。
 GUI アプリ（`jp-pii-sanitizer.exe`・CMake ターゲット `jp_pii_sanitizer`）はこれらの検証済みコアを
 WebView2 に載せたもの。
 

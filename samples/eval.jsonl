@@ -1,0 +1,249 @@
+{"_meta":{"version":1,"note":"評価用の正解データ。type=NEGATIVE は検出してはいけない語、scope=out は README の免責で対象外と宣言している構造化識別子。すべて架空。"}}
+{"file":"pii_test.docx","type":"PERSON","text":"田中健一"}
+{"file":"pii_test.docx","type":"PERSON","text":"佐藤美咲"}
+{"file":"pii_test.docx","type":"PERSON","text":"鈴木大輔"}
+{"file":"pii_test.docx","type":"PERSON","text":"山本さおり"}
+{"file":"pii_test.docx","type":"PERSON","text":"高橋誠一"}
+{"file":"pii_test.docx","type":"PERSON","text":"伊藤陽子"}
+{"file":"pii_test.docx","type":"PERSON","text":"渡辺隆志"}
+{"file":"pii_test.docx","type":"PERSON","text":"森田拓也"}
+{"file":"pii_test.docx","type":"PERSON","text":"小林直樹"}
+{"file":"pii_test.docx","type":"PERSON","text":"加藤真由美"}
+{"file":"pii_test.docx","type":"PERSON","text":"松本浩二"}
+{"file":"pii_test.docx","type":"PERSON","text":"中村千秋"}
+{"file":"pii_test.docx","type":"ORGANIZATION","text":"株式会社みらいテクノロジーズ"}
+{"file":"pii_test.docx","type":"ORGANIZATION","text":"グローバルソリューションズ合同会社"}
+{"file":"pii_test.docx","type":"ORGANIZATION","text":"有限会社さくら商事"}
+{"file":"pii_test.docx","type":"ORGANIZATION","text":"株式会社ネクストデータ"}
+{"file":"pii_test.docx","type":"ORGANIZATION","text":"株式会社あおぞら物産"}
+{"file":"pii_test.docx","type":"ORGANIZATION","text":"株式会社クラウドサポートセンター"}
+{"file":"pii_test.docx","type":"ORGANIZATION","text":"株式会社トライアンフ会計"}
+{"file":"pii_test.docx","type":"ORGANIZATION","text":"株式会社ヒューマンブリッジ"}
+{"file":"pii_test.docx","type":"LOCATION","text":"東京都渋谷区神南1丁目2番3号"}
+{"file":"pii_test.docx","type":"LOCATION","text":"大阪府大阪市北区梅田3丁目4番5号"}
+{"file":"pii_test.docx","type":"LOCATION","text":"神奈川県横浜市西区みなとみらい2丁目3番1号"}
+{"file":"pii_test.docx","type":"LOCATION","text":"北海道札幌市中央区大通西5丁目8番地"}
+{"file":"pii_test.docx","type":"LOCATION","text":"福岡県福岡市博多区博多駅前2丁目5番9号"}
+{"file":"pii_test.docx","type":"LOCATION","text":"愛知県名古屋市中区栄4丁目1番8号"}
+{"file":"pii_test.docx","type":"EMAIL","text":"k.tanaka@mirai-tech.co.jp"}
+{"file":"pii_test.docx","type":"EMAIL","text":"info@takahashi-law.jp"}
+{"file":"pii_test.docx","type":"EMAIL","text":"matsumoto@human-bridge.jp"}
+{"file":"pii_test.docx","type":"EMAIL","text":"chiaki.nakamura@example-corp.jp"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"田中健一"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"佐藤美咲"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"鈴木大輔"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"山本さおり"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"高橋誠一"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"伊藤陽子"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"渡辺隆志"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"森田拓也"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"小林直樹"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"加藤真由美"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"松本浩二"}
+{"file":"pii_test_slides.pptx","type":"PERSON","text":"中村千秋"}
+{"file":"pii_test_slides.pptx","type":"ORGANIZATION","text":"株式会社みらいテクノロジーズ"}
+{"file":"pii_test_slides.pptx","type":"ORGANIZATION","text":"グローバルソリューションズ合同会社"}
+{"file":"pii_test_slides.pptx","type":"ORGANIZATION","text":"有限会社さくら商事"}
+{"file":"pii_test_slides.pptx","type":"ORGANIZATION","text":"株式会社ネクストデータ"}
+{"file":"pii_test_slides.pptx","type":"ORGANIZATION","text":"株式会社あおぞら物産"}
+{"file":"pii_test_slides.pptx","type":"ORGANIZATION","text":"株式会社クラウドサポートセンター"}
+{"file":"pii_test_slides.pptx","type":"ORGANIZATION","text":"株式会社トライアンフ会計"}
+{"file":"pii_test_slides.pptx","type":"ORGANIZATION","text":"株式会社ヒューマンブリッジ"}
+{"file":"pii_test_slides.pptx","type":"LOCATION","text":"東京都渋谷区神南1丁目2番3号"}
+{"file":"pii_test_slides.pptx","type":"LOCATION","text":"大阪府大阪市北区梅田3丁目4番5号"}
+{"file":"pii_test_slides.pptx","type":"LOCATION","text":"神奈川県横浜市西区みなとみらい2丁目3番1号"}
+{"file":"pii_test_slides.pptx","type":"LOCATION","text":"北海道札幌市中央区大通西5丁目8番地"}
+{"file":"pii_test_slides.pptx","type":"LOCATION","text":"福岡県福岡市博多区博多駅前2丁目5番9号"}
+{"file":"pii_test_slides.pptx","type":"LOCATION","text":"愛知県名古屋市中区栄4丁目1番8号"}
+{"file":"pii_test_slides.pptx","type":"EMAIL","text":"k.tanaka@mirai-tech.co.jp"}
+{"file":"pii_test_slides.pptx","type":"EMAIL","text":"info@takahashi-law.jp"}
+{"file":"pii_test_slides.pptx","type":"EMAIL","text":"matsumoto@human-bridge.jp"}
+{"file":"pii_test_slides.pptx","type":"EMAIL","text":"chiaki.nakamura@example-corp.jp"}
+{"file":"pii_test.docx","type":"PHONE","text":"03-4567-8912"}
+{"file":"pii_test.docx","type":"PHONE","text":"090-1234-5678"}
+{"file":"pii_test.docx","type":"PHONE","text":"011-222-3344"}
+{"file":"pii_test.docx","type":"PHONE","text":"092-345-6789"}
+{"file":"pii_test_slides.pptx","type":"PHONE","text":"090-1234-5678"}
+{"file":"pii_test_slides.pptx","type":"PHONE","text":"011-222-3344"}
+{"file":"pii_test_slides.pptx","type":"PHONE","text":"092-345-6789"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"佐藤美咲"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"田中健一"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"鈴木大輔"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"高橋誠一"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"渡辺隆志"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"山本さおり"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"中村千秋"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"伊藤陽子"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"小林直樹"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"森田拓也"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"松本浩二"}
+{"file":"pii_excel_hogan.xlsx","type":"PERSON","text":"イトウヨウコ"}
+{"file":"pii_excel_hogan.xlsx","type":"ORGANIZATION","text":"株式会社みらいテクノロジーズ"}
+{"file":"pii_excel_hogan.xlsx","type":"ORGANIZATION","text":"グローバルソリューションズ合同会社"}
+{"file":"pii_excel_hogan.xlsx","type":"ORGANIZATION","text":"株式会社ネクストデータ"}
+{"file":"pii_excel_hogan.xlsx","type":"ORGANIZATION","text":"有限会社さくら商事"}
+{"file":"pii_excel_hogan.xlsx","type":"ORGANIZATION","text":"株式会社あおぞら物産"}
+{"file":"pii_excel_hogan.xlsx","type":"ORGANIZATION","text":"株式会社トライアンフ会計"}
+{"file":"pii_excel_hogan.xlsx","type":"ORGANIZATION","text":"株式会社クラウドサポートセンター"}
+{"file":"pii_excel_hogan.xlsx","type":"ORGANIZATION","text":"株式会社ヒューマンブリッジ"}
+{"file":"pii_excel_hogan.xlsx","type":"LOCATION","text":"東京都渋谷区神南1丁目2番3号"}
+{"file":"pii_excel_hogan.xlsx","type":"LOCATION","text":"大阪府大阪市北区梅田3-4-5"}
+{"file":"pii_excel_hogan.xlsx","type":"LOCATION","text":"東京都品川区大崎2-1-1"}
+{"file":"pii_excel_hogan.xlsx","type":"LOCATION","text":"神奈川県横浜市西区みなとみらい2-3-1"}
+{"file":"pii_excel_hogan.xlsx","type":"LOCATION","text":"愛知県名古屋市中区栄4-1-8"}
+{"file":"pii_excel_hogan.xlsx","type":"LOCATION","text":"福岡県福岡市博多区博多駅前2-5-9"}
+{"file":"pii_excel_hogan.xlsx","type":"LOCATION","text":"北海道札幌市中央区大通西5-8"}
+{"file":"pii_excel_hogan.xlsx","type":"LOCATION","text":"東京都新宿区西新宿1-6-1"}
+{"file":"pii_excel_hogan.xlsx","type":"EMAIL","text":"m.sato@example-corp.jp"}
+{"file":"pii_excel_hogan.xlsx","type":"EMAIL","text":"k.tanaka@mirai-tech.co.jp"}
+{"file":"pii_excel_hogan.xlsx","type":"EMAIL","text":"d.suzuki@global-sol.co.jp"}
+{"file":"pii_excel_hogan.xlsx","type":"EMAIL","text":"y.ito@nextdata.co.jp"}
+{"file":"pii_excel_hogan.xlsx","type":"EMAIL","text":"yamamoto@sakura-trade.jp"}
+{"file":"pii_excel_hogan.xlsx","type":"EMAIL","text":"watanabe@aozora-bussan.co.jp"}
+{"file":"pii_excel_hogan.xlsx","type":"EMAIL","text":"kobayashi@triumph-ac.jp"}
+{"file":"pii_excel_hogan.xlsx","type":"EMAIL","text":"morita@cloud-support.jp"}
+{"file":"pii_excel_hogan.xlsx","type":"EMAIL","text":"matsumoto@human-bridge.jp"}
+{"file":"pii_excel_hogan.xlsx","type":"PHONE","text":"03-5401-2288"}
+{"file":"pii_excel_hogan.xlsx","type":"PHONE","text":"03-4567-8912"}
+{"file":"pii_excel_hogan.xlsx","type":"PHONE","text":"090-1234-5678"}
+{"file":"pii_excel_hogan.xlsx","type":"PHONE","text":"06-6312-7788"}
+{"file":"pii_excel_hogan.xlsx","type":"PHONE","text":"045-222-3344"}
+{"file":"pii_excel_hogan.xlsx","type":"PHONE","text":"052-961-5500"}
+{"file":"pii_excel_hogan.xlsx","type":"PHONE","text":"092-345-6789"}
+{"file":"pii_excel_hogan.xlsx","type":"PHONE","text":"011-222-3344"}
+{"file":"pii_excel_hogan.xlsx","type":"PHONE","text":"03-3348-9900"}
+{"file":"不正調査_中間報告.pptx","type":"ACCOUNT","text":"十六銀行 可児支店 当座 0044912","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"ACCOUNT","text":"瀬戸信用金庫 高蔵寺支店 普通 1802467","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"ACCOUNT","text":"百五銀行 桑名支店 普通 2290518","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"LOCATION","text":"三重県桑名市大字江場字北浦776"}
+{"file":"不正調査_中間報告.pptx","type":"LOCATION","text":"岐阜県可児市土田4471-8"}
+{"file":"不正調査_中間報告.pptx","type":"LOCATION","text":"愛知県春日井市鷹来町3-14-2"}
+{"file":"不正調査_中間報告.pptx","type":"LOCATION","text":"横浜市都筑区茅ヶ崎中央58-12 ザ・パークハウス904"}
+{"file":"不正調査_中間報告.pptx","type":"CARD","text":"6789-**-4412","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"CASE_ID","text":"IC-2026-0417","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"DATE","text":"2025/11/03","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"DATE","text":"2025/12/18","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"DATE","text":"2026/02/09","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"DATE","text":"2026/03/22","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"DATE","text":"2026/05/30","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"DATE","text":"2026年7月24日","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"DATE","text":"2026年7月8日","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"EMAIL","text":"dohmeki.r@zenkai-holdings.co.jp"}
+{"file":"不正調査_中間報告.pptx","type":"EMAIL","text":"kashikihara@zenkai-holdings.co.jp"}
+{"file":"不正調査_中間報告.pptx","type":"EMAIL","text":"mabuchi.shiho@zenkai-holdings.co.jp"}
+{"file":"不正調査_中間報告.pptx","type":"EMAIL","text":"taoda.s@zenkai-holdings.co.jp"}
+{"file":"不正調査_中間報告.pptx","type":"EMAIL","text":"u-kumori@zenkai-holdings.co.jp"}
+{"file":"不正調査_中間報告.pptx","type":"EMAIL","text":"whistle.zk@proton.me"}
+{"file":"不正調査_中間報告.pptx","type":"EMPLOYEE_ID","text":"EMP-71208","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"EMPLOYEE_ID","text":"EMP-88231","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"EMPLOYEE_ID","text":"EMP-90514","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"EMPLOYEE_ID","text":"EMP-93677","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"EXT","text":"内線4471","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"MONEY","text":"3,150,000","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"MONEY","text":"4,820,000","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"MONEY","text":"482万円","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"MONEY","text":"6,700,000","scope":"out"}
+{"file":"不正調査_中間報告.pptx","type":"ORGANIZATION","text":"三井住友"}
+{"file":"不正調査_中間報告.pptx","type":"ORGANIZATION","text":"合同会社 埖田商会"}
+{"file":"不正調査_中間報告.pptx","type":"ORGANIZATION","text":"曲淵テクノサービス株式会社"}
+{"file":"不正調査_中間報告.pptx","type":"ORGANIZATION","text":"有限会社 蛇喰産業"}
+{"file":"不正調査_中間報告.pptx","type":"ORGANIZATION","text":"桧曽原リーガルテック株式会社"}
+{"file":"不正調査_中間報告.pptx","type":"ORGANIZATION","text":"蛇喰産業"}
+{"file":"不正調査_中間報告.pptx","type":"PERSON","text":"垰田"}
+{"file":"不正調査_中間報告.pptx","type":"PERSON","text":"垰田 聡美"}
+{"file":"不正調査_中間報告.pptx","type":"PERSON","text":"巻淵 志穂"}
+{"file":"不正調査_中間報告.pptx","type":"PERSON","text":"樅山"}
+{"file":"不正調査_中間報告.pptx","type":"PERSON","text":"樫木原"}
+{"file":"不正調査_中間報告.pptx","type":"PERSON","text":"樫木原 みゆき"}
+{"file":"不正調査_中間報告.pptx","type":"PERSON","text":"百目鬼"}
+{"file":"不正調査_中間報告.pptx","type":"PERSON","text":"百目鬼 亮介"}
+{"file":"不正調査_中間報告.pptx","type":"PERSON","text":"鵜久森"}
+{"file":"不正調査_中間報告.pptx","type":"PERSON","text":"鵜久森 達彦"}
+{"file":"不正調査_中間報告.pptx","type":"PHONE","text":"070-4455-1982"}
+{"file":"不正調査_中間報告.pptx","type":"PHONE","text":"080-6712-3390"}
+{"file":"不正調査_中間報告.pptx","type":"PHONE","text":"090-2841-6573"}
+{"file":"不正調査_中間報告.pptx","type":"PHONE","text":"090-3318-7024"}
+{"file":"不正調査報告書.pdf","type":"ACCOUNT","text":"十六銀行 可児支店 当座0044912","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"ACCOUNT","text":"瀬戸信用金庫 高蔵寺支店 普通1802467","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"ACCOUNT","text":"百五銀行 桑名支店 普通2290518","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"LOCATION","text":"三重県桑名市大字江場字北浦776"}
+{"file":"不正調査報告書.pdf","type":"LOCATION","text":"岐阜県可児市土田4471-8"}
+{"file":"不正調査報告書.pdf","type":"LOCATION","text":"愛知県春日井市鷹来町3-14-2"}
+{"file":"不正調査報告書.pdf","type":"LOCATION","text":"神奈川県横浜市都筑区茅ヶ崎中央58-12 ザ・パークハウス904"}
+{"file":"不正調査報告書.pdf","type":"ASSET_ID","text":"PC-AC-33718","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"CARD","text":"6789-**-4412","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"CASE_ID","text":"IC-2026-0417","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DATE","text":"2025/11/03","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DATE","text":"2025/12/18","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DATE","text":"2026/02/09","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DATE","text":"2026/03/22","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DATE","text":"2026/05/30","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DATE","text":"2026年2月9日","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DATE","text":"2026年7月24日","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DATE","text":"2026年7月8日","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DOB","text":"1974/05/12","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DOB","text":"1981/09/03","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DOB","text":"1988/12/21","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"DOB","text":"1993/07/30","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"EMAIL","text":"mabuchi.shiho@zenkai-holdings.co.jp"}
+{"file":"不正調査報告書.pdf","type":"EMAIL","text":"momiyama@hisohara-legal.jp"}
+{"file":"不正調査報告書.pdf","type":"EMAIL","text":"whistle.zk@proton.me"}
+{"file":"不正調査報告書.pdf","type":"EMPLOYEE_ID","text":"EMP-71208","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"EMPLOYEE_ID","text":"EMP-88231","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"EMPLOYEE_ID","text":"EMP-90514","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"EMPLOYEE_ID","text":"EMP-93677","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"EXT","text":"内線4471","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"MONEY","text":"3,150,000","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"MONEY","text":"4,820,000","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"MONEY","text":"482万円","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"MONEY","text":"6,700,000","scope":"out"}
+{"file":"不正調査報告書.pdf","type":"ORGANIZATION","text":"三井住友銀行"}
+{"file":"不正調査報告書.pdf","type":"ORGANIZATION","text":"全開ホールディングス株式会社"}
+{"file":"不正調査報告書.pdf","type":"ORGANIZATION","text":"合同会社 埖田商会"}
+{"file":"不正調査報告書.pdf","type":"ORGANIZATION","text":"合同会社埖田商会"}
+{"file":"不正調査報告書.pdf","type":"ORGANIZATION","text":"曲淵テクノサービス株式会社"}
+{"file":"不正調査報告書.pdf","type":"ORGANIZATION","text":"有限会社 蛇喰産業"}
+{"file":"不正調査報告書.pdf","type":"ORGANIZATION","text":"桧曽原リーガルテック株式会社"}
+{"file":"不正調査報告書.pdf","type":"ORGANIZATION","text":"蛇喰産業"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"垰田"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"垰田 聡美"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"埀水"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"巻淵 志穂"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"樅山"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"樫木原"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"樫木原 みゆき"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"猪爪 秀一"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"百目鬼"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"百目鬼 亮介"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"簓田 幸三"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"鵜久森"}
+{"file":"不正調査報告書.pdf","type":"PERSON","text":"鵜久森 達彦"}
+{"file":"不正調査報告書.pdf","type":"PHONE","text":"070-4455-1982"}
+{"file":"不正調査報告書.pdf","type":"PHONE","text":"080-6712-3390"}
+{"file":"不正調査報告書.pdf","type":"PHONE","text":"090-2841-6573"}
+{"file":"不正調査報告書.pdf","type":"PHONE","text":"090-3318-7024"}
+{"file":"meeting.md","type":"PERSON","text":"佐藤太郎"}
+{"file":"meeting.md","type":"PERSON","text":"鈴木花子"}
+{"file":"meeting.md","type":"PERSON","text":"阿野健一"}
+{"file":"meeting.md","type":"PERSON","text":"馬場みどり"}
+{"file":"meeting.md","type":"PERSON","text":"灰田涼"}
+{"file":"meeting.md","type":"PERSON","text":"田中一郎"}
+{"file":"meeting.md","type":"ORGANIZATION","text":"株式会社サンプル商事"}
+{"file":"meeting.md","type":"LOCATION","text":"東京都千代田区架空町1-2-3"}
+{"file":"meeting.md","type":"EMAIL","text":"hanako.suzuki@example.co.jp"}
+{"file":"meeting.md","type":"EMAIL","text":"ichiro.tanaka@example.com"}
+{"file":"meeting.md","type":"PHONE","text":"090-0000-1111"}
+{"file":"meeting.md","type":"PHONE","text":"03-0000-2222"}
+{"file":"meeting.md","type":"NEGATIVE","text":"えっと"}
+{"file":"meeting.md","type":"NEGATIVE","text":"えー"}
+{"file":"meeting.md","type":"NEGATIVE","text":"あー"}
+{"file":"meeting.md","type":"NEGATIVE","text":"あのー"}
+{"file":"meeting.md","type":"NEGATIVE","text":"うん"}
+{"file":"meeting.md","type":"NEGATIVE","text":"うんうん"}
+{"file":"meeting.md","type":"NEGATIVE","text":"はい"}
+{"file":"meeting.md","type":"NEGATIVE","text":"はいはい"}
+{"file":"meeting.md","type":"NEGATIVE","text":"まあ"}
+{"file":"meeting.md","type":"NEGATIVE","text":"なるほど"}
+{"file":"meeting.md","type":"NEGATIVE","text":"そうそう"}
+{"file":"meeting.md","type":"NEGATIVE","text":"ええと"}
+{"file":"meeting.md","type":"NEGATIVE","text":"あの"}

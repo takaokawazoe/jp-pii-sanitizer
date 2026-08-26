@@ -206,6 +206,27 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
       copy_runtime_dll(phase4_extract ${PDFIUM_DLL})
     endif()
 
+    # 検知精度の測定（eval ハーネス）。適合試験と違い「どれだけ捕まえられているか」を測る。
+    # マスク率・誤検知・往復健全性の 3 軸。正解は samples/eval.jsonl。
+    add_executable(eval src/eval.cpp
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz/miniz.c
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/pugixml/src/pugixml.cpp)
+    add_dependencies(eval tokenizer_shim_build sudachi_shim_build)
+    target_include_directories(eval PRIVATE
+      ${ORT_DIR}/include
+      ${PDFIUM_DIR}/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniz
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/pugixml/src
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${CMAKE_CURRENT_BINARY_DIR}/pcre2)
+    target_link_libraries(eval PRIVATE
+      ${ORT_LIB} ${TOKSHIM_LIB} ${SHIM_LIB} pcre2-8 ${PDFIUM_LIB} ${SYS_LIBS})
+    set_target_properties(eval PROPERTIES BUILD_RPATH "${ORT_DIR}/lib;${PDFIUM_DIR}/lib")
+    if(WIN32)
+      copy_runtime_dll(eval ${ORT_DLLS} ${PDFIUM_DLL})
+    endif()
+
     # 対応表のパスフレーズ暗号化（Argon2id + XChaCha20-Poly1305）。設計は
     # docs/mapping-encryption.md。KDF がオフライン総当たりに対する主防御なので、
     # Argon2id を持つ libsodium を使う（PBKDF2 しか無い OS API では代替できない）。
