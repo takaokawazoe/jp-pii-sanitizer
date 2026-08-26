@@ -8,7 +8,10 @@
 // 候補リストが一致すれば eval の入力が同じになり、結果も定義上一致する
 // （Phase 0 の「ラベルが一致すればエンティティも一致する」と同じ論法）。
 //
-// 使い方: phase2_pipeline [candidates_ref.json] [regex_ref.json]
+// 使い方: phase2_pipeline [--update] [candidates_ref.json] [regex_ref.json]
+//
+// `--update` は候補の期待値を現在の C++ 出力で書き戻す。検知を**意図的に**変えたときだけ
+// 使い、差分を必ず読んでから commit すること（oracle_io.hpp の注記を参照）。
 
 #include <cstdio>
 #include <fstream>
@@ -16,11 +19,13 @@
 #include <string>
 
 #include "json.hpp"
+#include "oracle_io.hpp"
 #include "step2.hpp"
 
 using json = nlohmann::json;
 
 int main(int argc, char** argv) {
+  const bool update = oracle::take_update_flag(argc, argv);
   const std::string cand_path = (argc > 1) ? argv[1] : "testdata/candidates_ref.json";
   const std::string rx_path = (argc > 2) ? argv[2] : "testdata/regex_ref.json";
   const std::string sud_path = (argc > 3) ? argv[3] : "testdata/sudachi_ref.json";
@@ -54,9 +59,19 @@ int main(int argc, char** argv) {
 
   std::size_t ok = 0, ng = 0;
   int shown = 0;
-  for (const auto& c : cref["cases"]) {
+  for (auto& c : cref["cases"]) {
     const auto text = c["text"].get<std::string>();
     const auto got = step2::extract_candidates(P, sd, ner, text);
+
+    if (update) {
+      // 現在の出力をそのまま期待値にする。判定はせず、書き戻して次のケースへ。
+      json arr = json::array();
+      for (const auto& g : got)
+        arr.push_back({{"text", g.text}, {"type", g.entity_type}, {"count", g.count}});
+      c["candidates"] = arr;
+      continue;
+    }
+
     const auto& want = c["candidates"];
     const auto doc = c["doc"].get<std::string>();
 
@@ -93,9 +108,10 @@ int main(int argc, char** argv) {
     }
   }
 
+  if (update) return oracle::write(cand_path, cref) ? 0 : 2;
+
   std::printf("\n  候補一致 %zu/%zu\n", ok, ok + ng);
   const bool pass = (ng == 0 && ok > 0);
-  std::printf("\n  === Phase 2（検知パイプライン）: %s ===\n",
-              pass ? "PASS (Python E3' と完全一致 → eval 174/175 と同値)" : "FAIL");
+  std::printf("\n  === Phase 2（検知パイプライン）: %s ===\n", pass ? "PASS" : "FAIL");
   return pass ? 0 : 1;
 }
