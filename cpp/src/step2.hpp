@@ -98,32 +98,6 @@ inline bool ends_with(const std::string& s, const std::string& suf) {
   return s.size() >= suf.size() && s.compare(s.size() - suf.size(), suf.size(), suf) == 0;
 }
 
-/// 人名候補が「名詞を1つも含まない」か。
-///
-/// **なぜ要るか**: 音声の文字起こしを流すと、フィラー（「えっと」「うん」「はい」「たのし」）が
-/// PERSON として出てくる。NER が拾ったスパンに人名トークンが無いと
-/// `furigana::person_name_core` は元の表記をそのまま返す設計（未知の姓を削りすぎないため）
-/// なので、後段でも落ちずに候補一覧へ残る。
-///
-/// **なぜ名詞の有無で見るか**: 人名は必ず名詞だから、名詞ゼロの候補を捨てても実在の名前を
-/// 巻き込まない。実測（SudachiDict）:
-///   えっと・え → 感動詞/フィラー、うん・はい → 感動詞、そう・なるほど → 副詞、
-///   たのし → 形容詞  ……いずれも名詞なし
-///   さくら → 普通名詞、ゆい・あきら → 固有名詞/人名  ……いずれも名詞あり（残る）
-///
-/// **これ以上は踏み込まない。** 「全部ひらがな かつ 人名の形態素が無い」まで広げると
-/// 「おてんさん」「みさん」も落とせるが、同じ条件で **さくら（普通名詞）も落ちる**。
-/// 過剰マスクは品質の問題で済むが、取りこぼしは漏洩そのもの。非対称なので安全側に倒す。
-inline bool has_no_noun(sudachi::Analyzer& sd, const std::string& s) {
-  bool any = false;
-  for (const auto& m : sd.tokenize(s)) {
-    if (m.pos.empty() || m.pos[0] == "空白") continue;
-    any = true;
-    if (m.pos[0] == "名詞") return false;
-  }
-  return any;  // 形態素が取れなければ判断材料が無いので落とさない
-}
-
 /// 組織名が（会社でなく）部署とみなせるか。会社マーカーがあれば会社扱い。
 inline bool is_department(const std::string& name) {
   for (const auto& m : COMPANY_MARKERS)
@@ -359,8 +333,17 @@ inline std::vector<Candidate> extract_candidates(const Patterns& P, sudachi::Ana
     if (overlaps_protected(c)) return true;  // メール等の断片
     if (c.entity_type == "PERSON" && !P.person_addr_noise.finditer(c.text).empty())
       return true;  // 住所を人名と誤ラベル
-    if (c.entity_type == "PERSON" && has_no_noun(sd, c.text))
-      return true;  // 文字起こしのフィラー（えっと・うん・はい 等）
+    // 文字起こしのフィラー（えっと・うん・はい・たのし 等）が PERSON 候補として出るのを防ぐ。
+    // NER のスパンに人名トークンが無いと person_name_core は元の表記をそのまま返す設計
+    // （未知の姓を削りすぎないため）なので、ここで落とさないと候補一覧に残る。
+    // 人名は必ず名詞なので、名詞ゼロの候補を捨てても実在の名前は巻き込まない
+    // （実測: さくら=普通名詞・ゆい=人名 はどちらも名詞ありで残る）。
+    //
+    // **これ以上は踏み込まない。** 「全部ひらがな かつ 人名の形態素が無い」まで広げると
+    // 「おてんさん」「みさん」も落とせるが、同じ条件で **さくら も落ちる**。過剰マスクは
+    // 品質の問題で済むが、取りこぼしは漏洩そのもの。非対称なので安全側に倒す。
+    if (c.entity_type == "PERSON" && furigana::has_no_noun(sd, c.text))
+      return true;
     if (!has_letter(P, c.text)) return true;  // 数字・記号だけ
     if (!MASK_DEPARTMENTS && c.entity_type == "ORGANIZATION" && is_department(c.text))
       return true;

@@ -67,6 +67,32 @@ inline std::string ws_insensitive_pattern(const std::string& term) {
   return pat;
 }
 
+/// 名寄せ（漢字氏名の読みを同一トークンに寄せる）に使ってよい読みだけを返す。
+///
+/// **なぜ絞るか**: 読みをそのまま確定リストに入れると、常用語と同音の姓で本文が壊れる。
+/// 実測（会議の文字起こし）: 「阿野」の読み「あの」が確定リストに入り、本文中のフィラー
+/// 「あの」18 箇所が全部その人の名前としてマスクされた。しかも逆置換で「阿野」に化けるので、
+/// **往復して原文に戻らない**（安全ゲートも残骸チェックも通ってしまうので気づけない）。
+///
+/// **判定は名詞の有無。** 人名は必ず名詞なので、名詞を含まない読みは名寄せに使わない。
+/// 実測で落ちるのは いずれも機能語の並び:
+///   あの・アノ → 連体詞、はいだ → 感動詞+助動詞、ほんだ → 代名詞+助動詞、
+///   おの → 接頭辞+助詞、まいた → 感動詞+動詞+助動詞
+/// 残るのは はら・はやし・ばば・とうごう や、フルネームの読み（ほんだたろう 等）。
+///
+/// **代償**: 姓だけをひらがなで書いた箇所（「ほんださん」等）は名寄せされなくなる＝
+/// 取りこぼし側に振れる。ただしフルネームの読みは残るので、ふりがな欄は従来どおり効く。
+/// 過剰マスクより往復破壊の方が重いと判断してこちらを採った。
+///
+/// **必ずこの関数を通すこと。** tokenize と find_mask_spans で判断が割れると、
+/// プレビューと結果が食い違う（README が一致を約束している）。
+inline std::vector<std::string> linkable_readings(sudachi::Analyzer& sd, const std::string& name) {
+  std::vector<std::string> out;
+  for (const auto& r : furigana::readings(sd, name))
+    if (!furigana::has_no_noun(sd, r)) out.push_back(r);
+  return out;
+}
+
 /// 空白を除いた芯（Python の "".join(ch for ch in t if not ch.isspace())）。
 inline std::string strip_spaces(const std::string& s) {
   const auto off = utf8::char_offsets(s);
@@ -128,7 +154,7 @@ class Tokenizer {
         if (t.entity_type != "PERSON") continue;
         const auto ait = aliases.find(t.text);
         const std::string canonical = (ait != aliases.end()) ? ait->second : t.text;
-        for (const auto& r : furigana::readings(*sd, t.text)) {
+        for (const auto& r : linkable_readings(*sd, t.text)) {
           confirmed.push_back({r, "PERSON"});
           aliases[r] = canonical;  // 読み → 漢字名（同一トークン）
         }
@@ -358,7 +384,7 @@ inline std::vector<MaskSpan> find_mask_spans(const std::string& text,
     const auto base = confirmed;
     for (const auto& t : base)
       if (t.entity_type == "PERSON")
-        for (const auto& r : furigana::readings(*sd, t.text))
+        for (const auto& r : linkable_readings(*sd, t.text))
           confirmed.push_back({r, "PERSON"});
   }
 

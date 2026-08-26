@@ -133,6 +133,22 @@ inline std::string org_name_core(sudachi::Analyzer& sd, const std::string& name)
   return trim(slice_chars(name, off, best->begin, best->end));
 }
 
+/// 文字列が「名詞を1つも含まない」か（＝感動詞・副詞・助詞などだけで出来ているか）。
+///
+/// 人名は必ず名詞なので、これが真なら人名として扱ってはいけない、という判断に使う。
+/// 使い所は2つ:
+///   1. 検知の候補フィルタ（step2）— 文字起こしのフィラーが PERSON 候補になるのを防ぐ
+///   2. 名寄せに使う読みの選別（tokenizer）— 常用語と同音の読みで本文を壊すのを防ぐ
+inline bool has_no_noun(sudachi::Analyzer& sd, const std::string& s) {
+  bool any = false;
+  for (const auto& m : sd.tokenize(s)) {
+    if (m.pos.empty() || m.pos[0] == "空白") continue;
+    any = true;
+    if (m.pos[0] == "名詞") return false;
+  }
+  return any;  // 形態素が取れなければ判断材料が無いので落とさない
+}
+
 /// カタカナ → ひらがな（U+30A1..U+30F6 を -0x60）。furigana._kata_to_hira 相当。
 inline std::string kata_to_hira(const std::string& s) {
   std::string out;
