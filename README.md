@@ -54,7 +54,7 @@ sanitizer uses), so the preview and the result always agree.
 
 ### Download and run (Windows 11+)
 
-1. Download `jp-pii-sanitizer-win-x64.zip` from [Releases](../../releases).
+1. Download `jp-pii-sanitizer-vX.Y.Z-win-x64.zip` from [Releases](../../releases).
 2. Extract it to a writable folder (Desktop, Downloads, …).
 3. Double-click `jp-pii-sanitizer.exe`.
 
@@ -175,7 +175,7 @@ GUI と CLI は**同じ**対応表フォーマットを読み書きします。�
 
 ### ダウンロードと実行（Windows 11 以降）
 
-1. [Releases](../../releases) から `jp-pii-sanitizer-win-x64.zip` をダウンロード。
+1. [Releases](../../releases) から `jp-pii-sanitizer-vX.Y.Z-win-x64.zip` をダウンロード。
 2. 書き込みできる場所（デスクトップ、ダウンロード等）に展開。
 3. `jp-pii-sanitizer.exe` をダブルクリック。
 

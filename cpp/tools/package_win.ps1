@@ -5,13 +5,24 @@
 # 前提: cmake --build build --target jp_pii_sanitizer jp_pii_sanitizer_cli が済んでいること
 #       （build/ に GUI/CLI の exe・各DLL・index.html が揃う）と、models/ にモデル一式があること。
 # 使い方: powershell -ExecutionPolicy Bypass -File cpp/tools/package_win.ps1
+#         powershell -ExecutionPolicy Bypass -File cpp/tools/package_win.ps1 -Version v0.4.1
+#
+# ZIP 名にバージョンを入れる。入れないと、利用者の手元に複数の版が落ちたときに
+# どれがどれか分からなくなる（ダウンロードフォルダで名前が衝突して "(1)" が付くだけ）。
+# 既定は直近のタグ。タグが無い環境では "dev" になる。
+param([string]$Version)
+
 $ErrorActionPreference = 'Stop'
 $cpp   = Split-Path $PSScriptRoot -Parent           # cpp/
 $build = Join-Path $cpp 'build'
 $models= Join-Path $cpp 'models'
 $dist  = Join-Path $cpp 'dist'
 $stage = Join-Path $dist 'jp-pii-sanitizer'
-$zip   = Join-Path $dist 'jp-pii-sanitizer-win-x64.zip'
+if (-not $Version) {
+  $Version = (& git -C $cpp describe --tags --abbrev=0 2>$null)
+  if (-not $Version) { $Version = 'dev' }
+}
+$zip   = Join-Path $dist "jp-pii-sanitizer-$Version-win-x64.zip"
 
 # --- 検査 ---
 $exe = Join-Path $build 'jp-pii-sanitizer.exe'
