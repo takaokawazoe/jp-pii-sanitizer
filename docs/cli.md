@@ -76,7 +76,7 @@ the GUI. It exposes three commands:
    [mapping-encryption.md](mapping-encryption.md).
 
 
-9. **Attachments are listed, never opened.** For `.msg`, the body and the
+9. **Attachments are listed, never opened.** For `.msg` and `.eml`, the body and the
    *attachment file names* are processed — names carry PII often enough to matter
    (`社員名簿_山田太郎_確認用.csv`) — but the attachment bytes are not parsed.
    This is deliberate, not missing work. Expanding them would mean writing the
@@ -120,7 +120,9 @@ the GUI. It exposes three commands:
 
 ### Known limitations
 
-- `.eml` is not supported yet (only `.msg`; the C++ side has no eml extractor).
+- `.eml` bodies are decoded from UTF-8, ISO-2022-JP, Shift_JIS and EUC-JP only.
+  Any other charset is reported as an error rather than silently mangled — an
+  unreadable body must not look like "no PII found".
 - One table sheet per xlsx **file** per invocation — `--tables` keys entries by
   basename, so multiple sheets of the same workbook can't all be active at once.
 - No Linux/macOS binaries in the Release yet — build from source.
@@ -187,7 +189,7 @@ cross-platform claim is checked on every push, not just asserted.
    この gate に乗る形になる — [mapping-encryption.md](mapping-encryption.md)。
 
 
-9. **添付は一覧に出すだけで、開かない。** `.msg` は本文と*添付ファイル名*を対象にする
+9. **添付は一覧に出すだけで、開かない。** `.msg` と `.eml` は本文と*添付ファイル名*を対象にする
    （`社員名簿_山田太郎_確認用.csv` のようにファイル名自体が PII を持つため）が、添付の
    中身は解析しない。**未実装ではなく意図的な判断**。展開するには添付の平文を一時ファイルへ
    書く必要があり（miniz も PDFium もパスを要求する）、外部から届いた信頼できないバイト列を
@@ -222,7 +224,9 @@ cross-platform claim is checked on every push, not just asserted.
 
 ### 既知の未対応
 
-- `.eml` 未対応（`.msg` のみ・C++ 側に eml 抽出器が無い）。
+- `.eml` の本文は UTF-8 / ISO-2022-JP / Shift_JIS / EUC-JP のみ復号する。それ以外の
+  charset は黙って化けさせず**エラーとして報告する**——読めなかった本文が
+  「PII が無かった」に見えるのが一番まずいため。
 - xlsx **ファイル**あたり 1 呼び出しで表シート 1 枚 — `--tables` は basename でキーを引くため、
   同一ブックの複数シートを同時に有効化できない。
 - Linux/macOS バイナリは Release に未添付 — ソースからビルドする。

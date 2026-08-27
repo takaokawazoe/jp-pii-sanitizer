@@ -7,7 +7,7 @@
 // この段の割り切り（最小疎通の次段）:
 //   - .msg は対応済み（Aspose は app/msg_bridge.cpp に隔離）。**添付の中身は展開しない**
 //     ——添付は利用者が自分で取り出して読み込む方針（docs/cli.md の設計判断）。
-//   - .eml は未対応（C++ に MIME 抽出器が無い）。
+//   - .eml は対応済み（RFC 5322 のテキストなので自前で読む・eml.hpp）。添付の扱いは .msg と同じ。
 //   - csv は列指定 UI を省き prose 扱い（Python は既定データ表だが、まず end-to-end 優先）。
 // 検知・マスク・逆置換のロジック自体は Phase 0-5 で Python と一致済み（10/10 green）。
 #pragma once
@@ -28,6 +28,7 @@
 #include "hf_ner.hpp"
 #include "json.hpp"
 #include "app/msg_bridge.hpp"
+#include "eml.hpp"
 #include "mapping_io.hpp"
 #include "ooxml.hpp"
 #include "pdf.hpp"
@@ -133,9 +134,19 @@ class Core {
           fr.error = r.error;
           if (!r.error.empty()) fr.kind = "skipped";
         }
+        else if (e == "eml") {
+          // .eml は Aspose を必要としない（RFC 5322 のテキスト）。添付の扱いは .msg と同じで、
+          // 本文＋ファイル名まで。attachments は警告ダイアログ用。
+          const auto r = eml::extract_eml(p);
+          fr.kind = "eml";
+          fr.text = eml::body_with_attachment_names(r);
+          fr.attachments = r.attachments;
+          fr.error = r.error;
+          if (utf8::trim(fr.text).empty()) fr.kind = "skipped";
+        }
         else {
           // 未対応拡張子は**理由を出す**。以前は無言で空ブロックになり、利用者からは
-          // 「読み込んだのに何も出ない」としか見えなかった（.msg/.eml は CLI のみ対応）。
+          // 「読み込んだのに何も出ない」としか見えなかった。
           fr.kind = "skipped";
           fr.text = "";
           fr.error = e.empty() ? "拡張子が判別できません" : ("未対応の形式です: ." + e);

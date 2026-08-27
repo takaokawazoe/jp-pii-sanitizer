@@ -1,0 +1,17 @@
+Subject: =?utf-8?B?6KaL56mN5pu444Gu6YCB5LuY?=
+From: takahashi@example.co.jp
+To: kokyaku@example.com
+Content-Type: multipart/alternative; boundary="----=_Part_0_12345"
+MIME-Version: 1.0
+
+------=_Part_0_12345
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: base64
+
+5bmz5paH44Gu5pys5paH44Gn44GZ44CC5ouF5b2T44Gv6auY5qmL5LiA6YOO44Gn44GZ44CCCg==
+------=_Part_0_12345
+Content-Type: text/html; charset=utf-8
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+PHA+SFRNTOOBruacrOaWh+OBp+OBmeOAguaLheW9k+OBrzxiPuWIpeS6uiDlpKrpg448L2I+44Gn44GZ44CCPC9wPjwvYm9keT48L2h0bWw+
+------=_Part_0_12345--

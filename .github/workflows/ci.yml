@@ -86,6 +86,7 @@ jobs:
           ./build/phase3_tokenize
           ./build/phase4_extract
           ./build/phase4_msg
+          ./build/phase4_eml
           ./build/phase5_core
 
       - name: CLI smoke (detect / mask / restore round-trip)
@@ -122,6 +123,17 @@ jobs:
           printf 'wrong\n' > /tmp/bad.txt
           ! ./build/jp-pii-sanitizer-cli restore --mapping /tmp/enc.jsonl -i /tmp/masked2.txt \
               --passphrase-file /tmp/bad.txt -o /tmp/nope.txt
+
+
+      # .eml は自前の MIME 抽出（Aspose 非依存）。文字コード変換は Windows と POSIX で
+      # 実装が違う（MultiByteToWideChar と iconv）ので、Linux でも通ることを確かめる。
+      - name: CLI smoke (.eml / ISO-2022-JP)
+        working-directory: cpp
+        run: |
+          set -euxo pipefail
+          ./build/jp-pii-sanitizer-cli detect testdata/eml/02_iso2022jp_qp.eml --data models > /tmp/eml.jsonl
+          grep -q '佐藤美咲' /tmp/eml.jsonl
+          grep -q '渡辺隆志' /tmp/eml.jsonl
 
       # 検知精度の測定。適合試験（挙動が変わっていないか）とは別で、こちらは
       # 「どれだけ捕まえられているか」を測る。

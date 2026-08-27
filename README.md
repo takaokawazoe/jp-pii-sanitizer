@@ -20,8 +20,8 @@ rule-based recognizers.
 
 ### What it does
 
-1. **Load** one or more files (`.docx`, `.pptx`, `.xlsx`, `.pdf`, `.csv`, `.txt`, `.msg`).
-   For `.msg`, the body and the *attachment file names* are processed; **attachment
+1. **Load** one or more files (`.docx`, `.pptx`, `.xlsx`, `.pdf`, `.csv`, `.txt`, `.msg`, `.eml`).
+   For `.msg` and `.eml`, the body and the *attachment file names* are processed; **attachment
    contents are deliberately not opened** — see [docs/cli.md](docs/cli.md#design-decisions).
 2. **Detect** candidate PII — person names, organizations, addresses, e-mail
    addresses, phone numbers, postal codes. **File names are scanned too**, because
@@ -99,7 +99,7 @@ jp-pii-sanitizer-cli restore --mapping mapping.jsonl -i ai_reply.txt -o final.tx
   --name-cols A,B --company-cols C` (columns by header name or 1-based index).
   `detect … --tables-out tables.jsonl` writes a starter you can edit. Table
   output is a count summary only; raw rows never reach the AI.
-- Formats: `.docx .pptx .xlsx .pdf .csv .txt .msg`. Run `--help` for all options.
+- Formats: `.docx .pptx .xlsx .pdf .csv .txt .msg .eml`. Run `--help` for all options.
   The mapping file is your most sensitive artifact — treat it like a password
   and delete it when done.
 
@@ -143,8 +143,8 @@ All sample and test data is synthetic — no real personal information is includ
 
 ### できること
 
-1. **読み込み**: 1つ以上のファイル（`.docx` / `.pptx` / `.xlsx` / `.pdf` / `.csv` / `.txt` / `.msg`）。
-   `.msg` は本文と*添付ファイル名*が対象で、**添付の中身は意図的に開きません**
+1. **読み込み**: 1つ以上のファイル（`.docx` / `.pptx` / `.xlsx` / `.pdf` / `.csv` / `.txt` / `.msg` / `.eml`）。
+   `.msg` と `.eml` は本文と*添付ファイル名*が対象で、**添付の中身は意図的に開きません**
    （理由は [docs/cli.md](docs/cli.md#日本語)）。
 2. **検出**: 人名・組織名・住所・メールアドレス・電話番号・郵便番号の候補。
    **ファイル名も検出対象**です（束ねたテキストに載るため。`社員名簿_山田太郎_確認用.csv` は氏名の漏洩になります）。
@@ -215,7 +215,7 @@ jp-pii-sanitizer-cli restore --mapping mapping.jsonl -i ai_reply.txt -o final.tx
   — 単一表ならフラグ `--table --header-row N --sheet NAME --name-cols A,B
   --company-cols C`（列は見出し名 or 1始まり番号）。`detect … --tables-out tables.jsonl`
   で編集用の雛形を出力できます。表の出力は件数要約のみで、生の行は AI に渡りません。
-- 対応形式: `.docx .pptx .xlsx .pdf .csv .txt .msg`。全オプションは `--help`。
+- 対応形式: `.docx .pptx .xlsx .pdf .csv .txt .msg .eml`。全オプションは `--help`。
   対応表ファイルは最も機微な成果物です。パスワードのように扱い、不要になったら削除してください。
 
 > 設計・実装メモ（なぜこの形か）: [docs/cli.md](docs/cli.md)。

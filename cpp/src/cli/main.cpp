@@ -38,6 +38,7 @@
 
 #include <sodium.h>  // sodium_memzero（パスフレーズの後始末）
 
+#include "eml.hpp"
 #include "extractors.hpp"
 #include "file_io.hpp"
 #include "hf_ner.hpp"
@@ -234,6 +235,15 @@ step5::FileResult ingest(const std::string& path) {
       fr.text = msg::body_with_attachment_names(r);
       fr.attachments = msg::attachment_names(r);
     }
+    else if (e == "eml") {
+      // .eml は RFC 5322 のテキストなので自前で読む（Aspose は要らない）。
+      // 添付の扱いは .msg と同じ: 本文＋ファイル名まで、中身は展開しない。
+      const auto r = eml::extract_eml(path);
+      fr.kind = "eml";
+      fr.text = eml::body_with_attachment_names(r);
+      fr.attachments = r.attachments;
+      fr.error = r.error;
+    }
     else { fr.kind = "skipped"; fr.text = ""; }
   } catch (const std::exception& ex) {
     fr.kind = "skipped";
@@ -428,6 +438,10 @@ std::vector<step5::FileResult> ingest_files(const std::vector<std::string>& path
     if (fr.kind == "skipped")
       std::fprintf(stderr, "warning: スキップ: %s%s%s\n", b.c_str(),
                    fr.error.empty() ? "" : " — ", fr.error.c_str());
+    else if (!fr.error.empty())
+      // 一部だけ読めなかった場合（.eml でヘッダは取れたが本文の文字コードが不明、等）。
+      // 黙っていると「PII が無かった」と区別が付かない。
+      std::fprintf(stderr, "warning: %s — %s\n", b.c_str(), fr.error.c_str());
     // 添付の**中身は展開しない**（設計判断・docs/cli.md）。黙っていると「添付も処理された」と
     // 誤解されるので必ず知らせる。添付を対象にしたい利用者は自分で保存して個別に渡す。
     if (!fr.attachments.empty()) {

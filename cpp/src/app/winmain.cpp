@@ -109,7 +109,7 @@ std::vector<std::string> pick_files() {
   dlg->GetOptions(&opts);
   dlg->SetOptions(opts | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM);
   COMDLG_FILTERSPEC filters[] = {
-      {L"対応ファイル", L"*.docx;*.pptx;*.xlsx;*.pdf;*.csv;*.txt;*.md;*.msg"},
+      {L"対応ファイル", L"*.docx;*.pptx;*.xlsx;*.pdf;*.csv;*.txt;*.md;*.msg;*.eml"},
       {L"すべて", L"*.*"}};
   dlg->SetFileTypes(2, filters);
   if (FAILED(dlg->Show(g_hwnd))) return out;  // キャンセル含む

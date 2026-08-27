@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "eml.hpp"
 #include "extractors.hpp"
 #include "file_io.hpp"
 #include "json.hpp"
@@ -102,6 +103,7 @@ std::string extract_text(const std::string& path) {
   if (e == "pptx") return ooxml::extract_pptx(path);
   if (e == "xlsx") return ooxml::read_xlsx_prose(path);
   if (e == "pdf") return pdf::extract_pdf(path);
+  if (e == "eml") return eml::body_with_attachment_names(eml::extract_eml(path));
   return extractors::extract_plain(path);  // txt / csv / md
 }
 

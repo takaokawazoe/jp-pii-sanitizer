@@ -32,6 +32,7 @@ green on both WSL/Linux and Windows/MSVC.**
 | `phase3_tokenize` | tokenize / reverse / furigana folding match Python | readings 68/68 |
 | `phase4_extract` | extracted text (docx/pptx/xlsx/csv/txt/pdf) matches Python | **8/8** |
 | `phase4_msg` | .msg loses none of Python's detected PII | 10/10 |
+| `phase4_eml` | .eml extraction: MIME, charsets, attachment names | 7/7 |
 | `phase5_core` | safety gate / highlight / bundling match Python | spans 5/5 · gate 10/10 |
 
 Candidate-set equality = the eval result (174/175) by construction.
@@ -232,6 +233,7 @@ WSL/Linux ＋ Windows(MSVC) の両方で green。**
 | `phase3_tokenize` | トークン化・逆置換・フリガナ名寄せが Python と一致するか | readings 68/68・各5/5 |
 | `phase4_extract` | docx/pptx/xlsx/csv/txt/pdf の抽出テキストが Python と一致するか | **8/8** |
 | `phase4_msg` | .msg が Python の検出PIIを1つも落とさないか | 平文 10/10 |
+| `phase4_eml` | .eml 抽出（MIME・文字コード・添付ファイル名） | 7/7 |
 | `phase5_core` | 安全ゲート・ハイライト・束ねが Python と一致するか | spans 5/5・gate 10/10・table OK |
 
 候補一致は、移植時の評価（Python 側 eval 174/175）と同値であることを確認した時点のもの。

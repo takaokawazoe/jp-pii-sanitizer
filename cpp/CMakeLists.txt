@@ -206,6 +206,17 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
       copy_runtime_dll(phase4_extract ${PDFIUM_DLL})
     endif()
 
+    # Phase 4d: .eml 抽出の回帰試験。**期待値は phase4_eml.cpp に手で書いてある**
+    # （オラクル JSON を持たない・理由はそのファイルの冒頭）。
+    # .eml は Aspose も PDFium も要らない。必要なのは PCRE2 だけ。
+    add_executable(phase4_eml src/phase4_eml.cpp)
+    target_include_directories(phase4_eml PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${PCRE2_DIR}/src
+      ${CMAKE_CURRENT_BINARY_DIR}/pcre2)
+    target_link_libraries(phase4_eml PRIVATE pcre2-8)
+
     # 検知精度の測定（eval ハーネス）。適合試験と違い「どれだけ捕まえられているか」を測る。
     # マスク率・誤検知・往復健全性の 3 軸。正解は samples/eval.jsonl。
     add_executable(eval src/eval.cpp
@@ -260,11 +271,14 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
     # 単体試験（オラクル比較の phase* とは別種）。文字コード境界・数値パース・
     # 対応表の読み書き（平文と暗号化）を、モデル辞書なしで検証する。
     add_executable(unit_tests src/unit_tests.cpp)
+    # mime.hpp（RFC 2047 のヘッダ復号）が re.hpp 経由で PCRE2 を要る。
     target_include_directories(unit_tests PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/third_party
       ${CMAKE_CURRENT_SOURCE_DIR}/src
-      ${SODIUM_INCLUDE})
-    target_link_libraries(unit_tests PRIVATE ${SODIUM_LIB})
+      ${SODIUM_INCLUDE}
+      ${PCRE2_DIR}/src
+      ${CMAKE_CURRENT_BINARY_DIR}/pcre2)
+    target_link_libraries(unit_tests PRIVATE ${SODIUM_LIB} pcre2-8)
     if(SODIUM_DEFS)
       target_compile_definitions(unit_tests PRIVATE ${SODIUM_DEFS})
     endif()

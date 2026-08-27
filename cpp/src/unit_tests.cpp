@@ -15,6 +15,7 @@
 
 #include "encoding.hpp"
 #include "file_io.hpp"
+#include "mime.hpp"
 #include "mapping_io.hpp"
 #include "numparse.hpp"
 #include "utf8.hpp"
@@ -89,15 +90,68 @@ void test_numparse_encoding_fileio() {
   check(numparse::to_int("99999999999999999999", -1) == -1, "to_int overflow");
   check(numparse::to_int_hex("4A") == 0x4A, "to_int_hex");
   check(numparse::to_int_hex("ZZ", 0) == 0, "to_int_hex garbage");
-
   std::string out;
-  const bool ok = encoding::cp932_to_utf8("\x82\xA0", out);  // cp932 の「あ」
-#ifdef _WIN32
-  check(ok && out == "\xE3\x81\x82", "cp932 -> UTF-8 (Windows)");
-#else
-  check(!ok, "cp932 unsupported on POSIX (caller falls back to repair)");
-#endif
+  // cp932 の「あ」。**POSIX でも通るようになった**（以前はここで !ok を期待していた）。
+  // iconv は glibc 本体の一部なので追加依存は無い。
+  check(encoding::cp932_to_utf8("\x82\xA0", out) && out == "\xE3\x81\x82", "cp932 -> UTF-8");
   check(encoding::cp932_to_utf8("", out) && out.empty(), "cp932 empty");
+
+  // ISO-2022-JP の「日本」。ESC $ B ... ESC ( B。日本語メールの件名で今も普通に来る。
+  // バイト列は素の \xNN で書く（「本」の JIS 下位バイトが 0x5C ＝ バックスラッシュなので、
+  // 文字として書くと C++ のエスケープと紛れる）。
+  const std::string jis_nihon = "\x1B\x24\x42\x46\x7C\x4B\x5C\x1B\x28\x42";
+  check(encoding::charset_to_utf8("ISO-2022-JP", jis_nihon, out) &&
+            out == "\xE6\x97\xA5\xE6\x9C\xAC",
+        "ISO-2022-JP -> UTF-8");
+  // **実メールの形**: ASCII → JIS → ASCII。Windows のコードページ 50220/50221/50222 は
+  // 戻りのエスケープを解釈できず U+E12A にして、以降の ASCII を JIS の 2 バイトとして
+  // 食い潰す（実測）。自前で剥がしているのはこれが理由。
+  check(encoding::charset_to_utf8("iso-2022-jp", "Re: " + jis_nihon + " ok", out) &&
+            out == "Re: \xE6\x97\xA5\xE6\x9C\xAC ok",
+        "ISO-2022-JP ascii-jis-ascii");
+  // 半角カナ（ESC ( I）→ ｱｲ
+  check(encoding::charset_to_utf8("iso-2022-jp", "\x1B\x28\x49\x31\x32\x1B\x28\x42", out) &&
+            out == "\xEF\xBD\xB1\xEF\xBD\xB2",
+        "ISO-2022-JP 半角カナ");
+  // 非対応の指示子（ISO-2022-JP-2 の GB2312）は黙って化けさせず false
+  check(!encoding::charset_to_utf8("iso-2022-jp", "\x1B\x24\x41\x41\x42\x1B\x28\x42", out),
+        "ISO-2022-JP 非対応の指示子は false");
+
+  // EUC-JP の「日本」
+  check(encoding::charset_to_utf8("euc-jp", "\xC6\xFC\xCB\xDC", out) &&
+            out == "\xE6\x97\xA5\xE6\x9C\xAC",
+        "EUC-JP -> UTF-8");
+  // 表記ゆれ（大小・引用符・区切り）を吸収する
+  check(encoding::charset_to_utf8("\"Shift_JIS\"", "\x82\xA0", out) && out == "\xE3\x81\x82",
+        "charset 名の表記ゆれ");
+  // UTF-8 と未指定は素通し（変換しない）
+  check(encoding::charset_to_utf8("utf-8", "\xE6\x97\xA5", out) && out == "\xE6\x97\xA5",
+        "utf-8 passthrough");
+  check(encoding::charset_to_utf8("", "abc", out) && out == "abc", "charset 未指定は素通し");
+  // **未知の charset は false**。黙って化けさせず「読めなかった」と言えるようにする。
+  check(!encoding::known_charset("koi8-r"), "未知の charset は known_charset=false");
+  check(!encoding::charset_to_utf8("koi8-r", "abc", out), "未知の charset は変換しない");
+
+  // ---- RFC 2047 ヘッダ復号（mime.hpp）----
+  // **これが今まで壊れていた**: charset を読み飛ばして UTF-8 前提だったので、
+  // ISO-2022-JP の件名は復号後に不正な UTF-8 になり utf8::repair で丸ごと U+FFFD になった。
+  check(mime::decode_mime_header("=?ISO-2022-JP?B?GyRCRnxLXBsoQg==?=") ==
+            "\xE6\x97\xA5\xE6\x9C\xAC",
+        "ISO-2022-JP の encoded-word");
+  check(mime::decode_mime_header("=?utf-8?B?5pel5pys?=") == "\xE6\x97\xA5\xE6\x9C\xAC",
+        "utf-8 の encoded-word");
+  // 隣り合う encoded-word の間の空白は捨てる（RFC 2047 §6.2）。長い日本語の件名は
+  // 76 バイト制限で折り返されるので、残すと語の途中に空白が入る。
+  check(mime::decode_mime_header("=?utf-8?B?5pel?= =?utf-8?B?5pys?=") ==
+            "\xE6\x97\xA5\xE6\x9C\xAC",
+        "隣接 encoded-word の空白を捨てる");
+  // encoded-word でない部分の空白は残す
+  check(mime::decode_mime_header("Re: =?utf-8?B?5pel?= <a@b.jp>") ==
+            "Re: \xE6\x97\xA5 <a@b.jp>",
+        "生テキストの空白は残す");
+  check(mime::decode_mime_header("plain subject") == "plain subject", "encoded-word 無しは素通し");
+  // 言語タグ付き（RFC 2231）
+  check(mime::decode_mime_header("=?utf-8*ja?B?5pel?=") == "\xE6\x97\xA5", "言語タグ付き charset");
 
   const std::string p = "unit_tests_tmp_\xE6\x97\xA5\xE6\x9C\xAC.txt";  // 日本語ファイル名
   check(fileio::write_all(p, "\xE6\x97\xA5\xE6\x9C\xAC"), "write_all (日本語パス)");

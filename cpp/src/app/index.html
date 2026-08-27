@@ -49,7 +49,7 @@
  <div id="left">
    <div class="lefttop">
      <button id="open">📂 ファイルを追加</button>
-     <div id="status">対応: docx / pptx / xlsx / pdf / csv / txt / msg</div>
+     <div id="status">対応: docx / pptx / xlsx / pdf / csv / txt / msg / eml</div>
      <div id="loaded"></div>
      <h3 style="margin-bottom:2px">候補（既定＝全マスク・外すものだけチェックを外す）</h3>
    </div>
@@ -202,9 +202,11 @@
      }
      if(b.error){
        const er=document.createElement('div'); er.className='leak';
-       er.textContent='抽出できませんでした: '+b.error;
+       // 一部だけ読めなかった場合（.eml でヘッダは取れたが本文の文字コードが不明、等）は
+       // **本文も出す**。出さないと、画面に無いテキストが AI 送信文には入ることになる。
+       er.textContent=(b.text? '一部を抽出できませんでした: ' : '抽出できませんでした: ')+b.error;
        el.appendChild(er);
-       return;  // 失敗理由は本文に混ぜない（AI 送信テキストにも入らない）
+       if(!b.text) return;  // 失敗理由は本文に混ぜない（AI 送信テキストにも入らない）
      }
      const box=document.createElement('div'); box.className='hlbox';
      box.innerHTML=highlight(b.text||'', b.spans||[]);
@@ -313,7 +315,7 @@
    openedPaths=[]; candidates=[]; blocks=[]; manual=[]; lastSanitized=''; mappingJsonl=''; mappingCount=0; docBase='output';
    renderLoaded(); renderCands(); renderPreview();
    $('resultBody').innerHTML='<p style="color:#666">「▶ サニタイズ実行」を押すと、ここに結果と対応表が表示されます。</p>';
-   $('status').textContent='対応: docx / pptx / xlsx / pdf / csv / txt / msg';
+   $('status').textContent='対応: docx / pptx / xlsx / pdf / csv / txt / msg / eml';
    switchTab('san');
  };
  $('madd').onclick=addManual;
