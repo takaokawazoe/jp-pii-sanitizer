@@ -19,6 +19,7 @@
 #include <fstream>
 #include <string>
 
+#include "file_io.hpp"
 #include "json.hpp"
 #include "msg.hpp"
 #include "re.hpp"
@@ -91,9 +92,40 @@ int main(int argc, char** argv) {
     }
   }
 
+
+  // ---- 日本語ファイル名で開けるか（回帰試験）----
+  //
+  // Aspose の `mapi_message::from_file` に narrow のパスを渡していたため、**日本語の
+  // ファイル名・フォルダ名の .msg は一度も開けていなかった**（MSVC は narrow をロケールの
+  // ANSI コードページ＝日本語 Windows では cp932 として解釈する）。利用者からは
+  // 「Unable to open CFB file: ...」または「No mapping for the Unicode character exists
+  // in the target multi-byte code page.」として見えた。UTF-8 バイト列がたまたま cp932 と
+  // して妥当かどうかでどちらになるかが変わるだけで、原因は同じ。
+  // 今は自前でバイト列を読んで from_stream に渡している。ASCII パスと同じ結果になること。
+  int jp_ng = 0;
+  if (!ref["cases"].empty()) {
+    const std::string src = ref["cases"][0]["path"].get<std::string>();
+    const std::string dst = "phase4_msg_tmp_\xE4\xBC\x9A\xE8\xAD\xB0.msg";  // 会議.msg
+    if (!fileio::write_all(dst, fileio::read_all(src))) {
+      std::printf("  NG: 日本語名の一時ファイルを作れない\n");
+      ++jp_ng;
+    } else {
+      try {
+        if (msg::extract_msg(src).text != msg::extract_msg(dst).text) {
+          std::printf("  NG: 日本語ファイル名で本文が違う\n");
+          ++jp_ng;
+        }
+      } catch (const std::exception& e) {
+        std::printf("  NG: 日本語ファイル名の .msg を開けない: %s\n", e.what());
+        ++jp_ng;
+      }
+      fileio::remove_file(dst);
+    }
+    if (jp_ng == 0) std::printf("\n  日本語ファイル名（会議.msg）: OK\n");
+  }
   std::printf("\n  平文本文の msg: PII取りこぼしゼロ %zu/%zu\n", ok, ok + ng);
   std::printf("  HTML本文の msg（bs4近似）: 完全被覆 %d/%d（参考）\n", html_ok, html_total);
-  const bool pass = (ng == 0 && ok > 0);
+  const bool pass = (ng == 0 && ok > 0 && jp_ng == 0);
   std::printf("\n  === Phase 4c（msg・PII取りこぼしゼロ）: %s ===\n",
               pass ? "PASS (Python の検出PIIを1つも落とさない)" : "FAIL");
   return pass ? 0 : 1;

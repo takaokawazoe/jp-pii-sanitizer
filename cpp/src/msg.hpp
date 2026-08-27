@@ -9,11 +9,14 @@
 #pragma once
 
 #include <any>
+#include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "aspose/email/foss/msg/mapi_message.hpp"
 #include "extractors.hpp"  // strip_ruby / dewrap_prose
+#include "file_io.hpp"
 #include "mime.hpp"
 #include "numparse.hpp"
 #include "re.hpp"
@@ -58,7 +61,21 @@ struct Result {
 
 /// .msg を抽出（extract_msg 相当）。件名/差出人/宛先/Cc/受信者/ヘッダ/本文＋添付。
 inline Result extract_msg(const std::string& path) {
-  auto m = ae::mapi_message::from_file(path);
+  // **パスを Aspose に渡さない。** `mapi_message::from_file` は narrow の文字列から
+  // `std::filesystem::path` を作るが、**MSVC は narrow をロケールの ANSI コードページ
+  // （日本語 Windows では cp932）として解釈する**。こちらが持っているのは UTF-8 なので、
+  // 日本語のファイル名・フォルダ名だと別のパスを開きにいって
+  //   「Unable to open CFB file: ...」（UTF-8 バイト列がたまたま cp932 として妥当な場合）
+  //   「No mapping for the Unicode character exists in the target multi-byte code page.」
+  // のどちらかになる。**.msg は日本語名だと一度も開けていなかった。**
+  //
+  // 自前で（ワイド API で）読んでからバイト列を渡す。file_io.hpp を使うのは他の入口と同じ
+  // 理由で、「narrow パスをそのままファイル API に渡さない」がこのコードベースの規則。
+  // PDFium と miniz は UTF-8 を自前で widen するので同じ問題は起きない（実測）。
+  const std::string bytes = fileio::read_all(path);
+  if (bytes.empty()) throw std::runtime_error("開けないか空のファイルです: " + path);
+  std::istringstream in(bytes, std::ios::binary);
+  auto m = ae::mapi_message::from_stream(in);
   std::vector<std::string> parts;
 
   // 件名・差出人・宛先・Cc
