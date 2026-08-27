@@ -124,7 +124,26 @@ inline std::string org_name_core(sudachi::Analyzer& sd, const std::string& name)
       }
     }
   }
-  if (marker_runs.empty()) return name;
+  if (marker_runs.empty()) {
+    // マーカー（株式会社 等）が無いときは、以前はスパンをそのまま返していた。だが NER の
+    // スパンは前後に食み出すことがあり、文字起こしだと**フィラーごと 1 スパンになる**
+    // （実測: 句読点の無い書き起こしで「えっと弊社」「えっと大手」が ORGANIZATION 候補に
+    // なった）。マーカーがある場合は下の最長連続の取り方で自然に落ちるので、抜けていたのは
+    // このマーカー無しの経路だけ。
+    //
+    // **落とすのは先頭のフィラー（感動詞）だけ。** 「前後の非名詞を削る」まで広げると
+    // 実在の名前を削る（実測）:
+    //   曲淵テクノサービス㈱ → 曲淵テクノサービス  （㈱ は記号なので末尾で落ちる）
+    //   簓田                 → 簓                  （田 が接尾辞なので末尾で落ちる）
+    // 過剰マスクは品質の問題で済むが、名前を削るのは取りこぼし側に効く。狭く倒す。
+    std::size_t skip = 0;
+    while (skip < morphs.size() && !morphs[skip].pos.empty() &&
+           (morphs[skip].pos[0] == "感動詞" || morphs[skip].pos[0] == "空白" ||
+            (morphs[skip].pos.size() > 1 && morphs[skip].pos[1] == "フィラー")))
+      ++skip;
+    if (skip == 0 || skip >= morphs.size()) return name;
+    return trim(slice_chars(name, off, morphs[skip].begin, morphs.back().end));
+  }
 
   // マーカーを含む最長連続。Python の max(key=len) は同点なら最初を採る。
   const auto best = std::max_element(

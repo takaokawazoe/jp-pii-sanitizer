@@ -139,11 +139,11 @@ jobs:
       # 「どれだけ捕まえられているか」を測る。
       #
       # 下限はラチェット。**Windows/MSVC と ubuntu で同一の数値が出ることを実測してから**
-      # 設定した（186/187・往復 5/6・誤検知 0）。ONNX も PDFium も別ビルドなので事前には
+      # 設定した（186/187・往復 6/7・誤検知 0/14）。ONNX も PDFium も別ビルドなので事前には
       # 保証が無く、1 回測ってから決めた。
       #
       # 下げるときは意図的な判断として下げること（精度を落とす変更を黙って通さないための門）。
       # 誤検知は閾値ではなく真偽なので、指定が無くても 1 件でもあれば eval は非ゼロ終了する。
       - name: eval (detection quality)
         working-directory: cpp
-        run: ./build/eval --data models --samples ../samples --min-mask 186 --min-roundtrip 5
+        run: ./build/eval --data models --samples ../samples --min-mask 186 --min-roundtrip 6

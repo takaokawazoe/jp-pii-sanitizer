@@ -333,16 +333,26 @@ inline std::vector<Candidate> extract_candidates(const Patterns& P, sudachi::Ana
     if (overlaps_protected(c)) return true;  // メール等の断片
     if (c.entity_type == "PERSON" && !P.person_addr_noise.finditer(c.text).empty())
       return true;  // 住所を人名と誤ラベル
-    // 文字起こしのフィラー（えっと・うん・はい・たのし 等）が PERSON 候補として出るのを防ぐ。
+    // 文字起こしのフィラー（えっと・うん・はい・たのし 等）が候補として出るのを防ぐ。
     // NER のスパンに人名トークンが無いと person_name_core は元の表記をそのまま返す設計
     // （未知の姓を削りすぎないため）なので、ここで落とさないと候補一覧に残る。
-    // 人名は必ず名詞なので、名詞ゼロの候補を捨てても実在の名前は巻き込まない
-    // （実測: さくら=普通名詞・ゆい=人名 はどちらも名詞ありで残る）。
+    //
+    // **PERSON だけでなく ORGANIZATION にも効かせる。** 当初は PERSON だけを見ていたが、
+    // 同じ「えっと」が文脈によっては ORGANIZATION とラベル付けされる（NER は 250 字
+    // チャンクの文脈で判断するので、社名の話をしている最中のフィラーは会社に寄る）。
+    // ORGANIZATION 側の既存の門は「部署名」と「会社マーカーだけ」の 2 つで、素のフィラーは
+    // どちらにも当たらず素通りしていた。
+    //
+    // 人名も社名も必ず名詞なので、名詞ゼロの候補を捨てても実在の名前は巻き込まない
+    // （実測: さくら=普通名詞・ゆい=人名 はどちらも名詞ありで残る。社名は
+    // みらいテクノロジーズ・あおぞら物産 のような仮名だけの名前でも名詞になる）。
+    // LOCATION は別の門（番地の数字が要る）で既にフィラーが通らない。
     //
     // **これ以上は踏み込まない。** 「全部ひらがな かつ 人名の形態素が無い」まで広げると
     // 「おてんさん」「みさん」も落とせるが、同じ条件で **さくら も落ちる**。過剰マスクは
     // 品質の問題で済むが、取りこぼしは漏洩そのもの。非対称なので安全側に倒す。
-    if (c.entity_type == "PERSON" && furigana::has_no_noun(sd, c.text))
+    if ((c.entity_type == "PERSON" || c.entity_type == "ORGANIZATION") &&
+        furigana::has_no_noun(sd, c.text))
       return true;
     if (!has_letter(P, c.text)) return true;  // 数字・記号だけ
     if (!MASK_DEPARTMENTS && c.entity_type == "ORGANIZATION" && is_department(c.text))
