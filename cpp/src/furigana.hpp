@@ -191,6 +191,27 @@ inline std::string kata_to_hira(const std::string& s) {
   return out;
 }
 
+/// 全部が仮名（ひらがな・カタカナ・半角カナ）か。空文字は false。
+///
+/// 1 文字だけの候補を落とす判定に使う。**漢字は含めない**——「林」「森」のような
+/// 1 文字の姓が実在するため。仮名 1 文字の人名・社名は無いので、こちらだけ切る。
+inline bool is_all_kana(const std::string& s) {
+  const auto off = char_offsets(s);
+  if (off.size() < 2) return false;
+  for (std::size_t i = 0; i + 1 < off.size(); ++i) {
+    const auto c = utf8::slice(s, off, i, i + 1);
+    if (c.size() != 3) return false;  // ASCII・4バイト文字は仮名ではない
+    const unsigned cp = ((static_cast<unsigned char>(c[0]) & 0x0F) << 12) |
+                        ((static_cast<unsigned char>(c[1]) & 0x3F) << 6) |
+                        (static_cast<unsigned char>(c[2]) & 0x3F);
+    const bool hira = cp >= 0x3041 && cp <= 0x309F;  // ぁ..ゟ
+    const bool kata = cp >= 0x30A0 && cp <= 0x30FF;  // ゠..ヿ（長音符 ー を含む）
+    const bool half = cp >= 0xFF66 && cp <= 0xFF9F;  // ｦ..ﾟ（半角カナ）
+    if (!(hira || kata || half)) return false;
+  }
+  return true;
+}
+
 /// 漢字氏名のカナ/かな読みの表記ゆれ候補（furigana.readings の移植）。
 ///
 /// 連結・半角空白区切り・全角空白区切り × カタカナ/ひらがな の計6形（重複除去）。

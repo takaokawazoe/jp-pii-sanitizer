@@ -354,6 +354,17 @@ inline std::vector<Candidate> extract_candidates(const Patterns& P, sudachi::Ana
     if ((c.entity_type == "PERSON" || c.entity_type == "ORGANIZATION") &&
         furigana::has_no_noun(sd, c.text))
       return true;
+    // **1 文字の仮名だけの候補を捨てる。** 候補には長さの門が一切無く、NER が拾った
+    // 1 文字がそのまま人名・社名として出ていた（利用者からの報告: ク・ホ・イ が人名扱い）。
+    // 実測でも、区分記号のように孤立したカタカナや、字間の空いた「ヤ マ ダ」の断片が
+    // PERSON 候補になる。
+    //
+    // 仮名 1 文字の人名・社名は存在しないので切ってよい。**漢字は切らない**——
+    // 「林」「森」「原」のような 1 文字の姓が実在する。2 文字以上の仮名（ケン・リサ 等）も
+    // 実在するので、長さ 1 に限る。
+    if ((c.entity_type == "PERSON" || c.entity_type == "ORGANIZATION") &&
+        utf8::char_len(c.text) == 1 && furigana::is_all_kana(c.text))
+      return true;
     if (!has_letter(P, c.text)) return true;  // 数字・記号だけ
     if (!MASK_DEPARTMENTS && c.entity_type == "ORGANIZATION" && is_department(c.text))
       return true;

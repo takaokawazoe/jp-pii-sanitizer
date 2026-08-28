@@ -11,6 +11,7 @@
 #include <string>
 
 #include "extractors.hpp"
+#include "file_io.hpp"
 #include "json.hpp"
 #include "ooxml.hpp"
 #include "pdf.hpp"
@@ -79,8 +80,42 @@ int main(int argc, char** argv) {
     }
   }
 
+
+  // ---- xlsx のふりがな（<rPh>）を本文に混ぜないか（回帰試験）----
+  //
+  // 日本語版 Excel はセルに入力したふりがなを同じ <si> の中に
+  // `<rPh sb=".." eb=".."><t>ヤマダ</t></rPh>` として持つ。`.//t` を素直に全部拾うと
+  // 「山田太郎ヤマダタロウ」になり、**Excel の画面にも openpyxl にも現れない文字列**が
+  // 本文に混ざる。カタカナの断片が人名候補として出る原因にもなる。
+  //
+  // セルの値として入っている「フリガナ列」（si[3] の サトウ ミサキ）は今までどおり拾うこと。
+  // 見えているデータなので対象から外す理由が無い。
+  int rph_ng = 0;
+  {
+    const std::string p = "testdata/xlsx_furigana.xlsx";
+    if (!fileio::exists(p)) {
+      std::printf("  NG: フィクスチャが無い: %s\n", p.c_str());
+      ++rph_ng;
+    } else {
+      const std::string got = ooxml::read_xlsx_prose(p);
+      for (const char* want : {"山田太郎", "営業部", "サトウ ミサキ"}) {
+        if (got.find(want) == std::string::npos) {
+          std::printf("  NG: xlsx に %s が無い\n", want);
+          ++rph_ng;
+        }
+      }
+      for (const char* bad : {"ヤマダ", "タロウ", "エイギョウブ"}) {
+        if (got.find(bad) != std::string::npos) {
+          std::printf("  NG: ふりがな %s が本文に混ざっている\n", bad);
+          ++rph_ng;
+        }
+      }
+      if (rph_ng) std::printf("      抽出: %s\n", got.c_str());
+    }
+    if (rph_ng == 0) std::printf("  xlsx のふりがな(rPh)を除外: OK\n");
+  }
   std::printf("\n  抽出一致 %zu/%zu\n", ok, ok + ng);
-  const bool pass = (ng == 0 && ok > 0);
+  const bool pass = (ng == 0 && ok > 0 && rph_ng == 0);
   std::printf("\n  === Phase 4（入口・抽出テキスト）: %s ===\n",
               pass ? "PASS (Python と一致)" : "FAIL");
   return pass ? 0 : 1;

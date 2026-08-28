@@ -248,3 +248,7 @@
 {"file":"meeting.md","type":"NEGATIVE","text":"ええと"}
 {"file":"meeting.md","type":"NEGATIVE","text":"あの"}
 {"file":"transcript_filler_stress.txt","type":"NEGATIVE","text":"えっと"}
+{"file":"single_kana_noise.txt","type":"PERSON","text":"サトウ ミサキ"}
+{"file":"single_kana_noise.txt","type":"NEGATIVE","text":"ク"}
+{"file":"single_kana_noise.txt","type":"NEGATIVE","text":"ホ"}
+{"file":"single_kana_noise.txt","type":"NEGATIVE","text":"イ"}

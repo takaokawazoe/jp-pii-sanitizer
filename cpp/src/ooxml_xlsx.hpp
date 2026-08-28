@@ -39,6 +39,13 @@ inline int col_of(const std::string& ref) {
 }
 
 /// sharedStrings.xml を読む。各 <si> は直下または <r> 内の全 <t> を連結。
+///
+/// **`<rPh>`（ふりがな）は除く。** 日本語版 Excel はセルに入力したふりがなを
+/// `<rPh sb=".." eb=".."><t>ヤマダ</t></rPh>` として同じ <si> の中に持つ。全ての <t> を
+/// 拾うと「山田太郎ヤマダタロウ」のような値になり、Excel の画面にも openpyxl にも
+/// 現れない文字列が本文に混ざる。カタカナの断片が人名候補として出る原因にもなる。
+/// ふりがなを本当に対象にしたい場合は、セルの値として入っている「フリガナ列」を
+/// 読めばよく、そちらは今までどおり拾う。
 inline std::vector<std::string> read_shared_strings(const std::string& path) {
   std::vector<std::string> out;
   const std::string xml = zip_read(path, "xl/sharedStrings.xml");
@@ -47,7 +54,7 @@ inline std::vector<std::string> read_shared_strings(const std::string& path) {
   if (!doc.load_buffer(xml.data(), xml.size())) return out;
   for (const auto& si : doc.select_nodes("//*[local-name()='si']")) {
     std::string s;
-    for (const auto& t : si.node().select_nodes(".//*[local-name()='t']"))
+    for (const auto& t : si.node().select_nodes(".//*[local-name()='t' and not(ancestor::*[local-name()='rPh'])]"))
       s += t.node().text().get();
     out.push_back(s);
   }
@@ -147,7 +154,7 @@ inline std::vector<std::vector<std::string>> sheet_rows(const std::string& xml,
         const int idx = numparse::to_int(v, -1);  // 壊れた <v> でも例外を投げない
         if (idx >= 0 && idx < static_cast<int>(shared.size())) val = shared[idx];
       } else if (type == "inlineStr") {
-        for (const auto& t : c.select_nodes(".//*[local-name()='t']"))
+        for (const auto& t : c.select_nodes(".//*[local-name()='t' and not(ancestor::*[local-name()='rPh'])]"))
           val += t.node().text().get();
       } else {
         val = c.child("v").text().get();
@@ -200,7 +207,7 @@ inline std::string sheet_prose(const std::string& xml, const std::vector<std::st
         const int idx = numparse::to_int(v, -1);  // 壊れた <v> でも例外を投げない
         if (idx >= 0 && idx < static_cast<int>(shared.size())) val = shared[idx];
       } else if (type == "inlineStr") {
-        for (const auto& t : c.select_nodes(".//*[local-name()='t']"))
+        for (const auto& t : c.select_nodes(".//*[local-name()='t' and not(ancestor::*[local-name()='rPh'])]"))
           val += t.node().text().get();
       } else {  // 数値・日付（data_only なら計算済み値が <v> に）
         val = c.child("v").text().get();
