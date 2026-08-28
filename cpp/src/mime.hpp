@@ -80,14 +80,29 @@ inline std::string q_decode(const std::string& in) {
 /// 変換できない charset は復号したバイト列をそのまま返す（従来と同じ）。読めない件名の
 /// ために本文まで捨てるのは割に合わない。
 inline std::string decode_mime_header(const std::string& value) {
+  // **正規表現に掛ける前に UTF-8 であることを保証する。** ヘッダに encoded-word を使わず
+  // 生の 8bit バイトを入れてくるメールが実在し（規格違反だが日本語メールでは珍しくない）、
+  // そのまま PCRE2 に渡すと
+  //   「pcre2_match 失敗: UTF-8 error: isolated byte with 0x80 bit set」
+  // で抽出ごと落ちる。.msg 側は入口の mapi_text で潰しているが、.eml はファイルの
+  // バイト列がそのままここへ来るので、ここでも受け止める。
+  // 判定は平文ファイルと同じ（UTF-8 として妥当ならそのまま／駄目なら cp932 ／
+  // どちらでもなければ U+FFFD）。
+  std::string safe;
+  if (utf8::is_valid(value)) {
+    safe = value;
+  } else if (!encoding::cp932_to_utf8(value, safe)) {
+    safe = utf8::repair(value);
+  }
+  const std::string& v = safe;
   static const re::Regex enc{R"(=\?[^?]+\?[BbQq]\?[^?]*\?=)"};
-  const auto matches = enc.finditer(value);
-  if (matches.empty()) return value;
+  const auto matches = enc.finditer(v);
+  if (matches.empty()) return v;
   std::string out;
   std::size_t prev = 0;
   bool prev_was_encoded = false;
   for (const auto& m : matches) {
-    const std::string gap = value.substr(prev, m.begin - prev);
+    const std::string gap = v.substr(prev, m.begin - prev);
     // **隣り合う encoded-word の間の空白は捨てる**（RFC 2047 §6.2）。長い日本語の件名は
     // 76 バイト制限で複数の encoded-word に折り返されるので、残すと語の途中に空白が入る。
     const bool gap_is_ws =
@@ -111,7 +126,7 @@ inline std::string decode_mime_header(const std::string& value) {
     prev = m.end;
     prev_was_encoded = true;
   }
-  out += value.substr(prev);
+  out += v.substr(prev);
   return out;
 }
 

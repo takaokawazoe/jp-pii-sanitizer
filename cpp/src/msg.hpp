@@ -27,12 +27,34 @@ namespace msg {
 namespace ae = aspose::email::foss::msg;
 
 
+/// MAPI から出てきた文字列を UTF-8 に揃える。
+///
+/// **なぜ要るか**: MAPI のプロパティには Unicode(PT_UNICODE) と非 Unicode(PT_STRING8) が
+/// あり、Aspose の decode_string8 は**バイト列をそのまま返す**（コードページ変換をしない）。
+/// 日本語 Windows の Outlook が非 Unicode で保存した .msg は本文も件名も cp932 のままで、
+/// これが下流の PCRE2 に届くと
+///   「pcre2 match 失敗: UTF-8 error: isolated byte with 0x80 bit set」
+/// で抽出ごと失敗する（実測・利用者からの報告）。出口の utf8::repair より手前で
+/// dewrap_prose が正規表現を掛けるので、**入口で直す必要がある**。
+///
+/// 判定は平文ファイルと同じ decode_text_bytes（UTF-8 として妥当ならそのまま／
+/// 駄目なら cp932 ／どちらでもなければ U+FFFD で潰す）。既に UTF-8 の .msg は素通しなので、
+/// Unicode で保存された通常の .msg の挙動は変わらない。
+///
+/// **限界**: コードページは cp932 決め打ちで、PidTagMessageCodepage を見ていない。
+/// 日本語以外の非 Unicode .msg（キリル文字等）は cp932 として読めず U+FFFD になる。
+/// 平文 CSV/TXT の入口と同じ割り切りで、必要になったら広げる。
+inline std::string mapi_text(const std::string& s) {
+  return extractors::decode_text_bytes(s);
+}
+
 inline std::string prop_string(const ae::mapi_message& m, std::uint16_t id) {
   const std::any* a = m.get_property_value(id);
   if (!a) return {};
-  if (const auto* s = std::any_cast<std::string>(a)) return *s;
+  // 取り出した時点で UTF-8 に揃える（理由は mapi_text）。
+  if (const auto* s = std::any_cast<std::string>(a)) return mapi_text(*s);
   if (const auto* b = std::any_cast<std::vector<std::uint8_t>>(a))
-    return std::string(b->begin(), b->end());
+    return mapi_text(std::string(b->begin(), b->end()));
   return {};
 }
 
@@ -79,9 +101,11 @@ inline Result extract_msg(const std::string& path) {
   std::vector<std::string> parts;
 
   // 件名・差出人・宛先・Cc
-  if (!m.subject().empty()) parts.push_back("件名: " + m.subject());
-  const std::string sname = m.sender_name();
-  const std::string semail = m.sender_email_address();
+  // Aspose から出る文字列は全て mapi_text を通す（非 Unicode の .msg は cp932 のまま来る）。
+  const std::string subject = mapi_text(m.subject());
+  if (!subject.empty()) parts.push_back("件名: " + subject);
+  const std::string sname = mapi_text(m.sender_name());
+  const std::string semail = mapi_text(m.sender_email_address());
   std::string sender = sname;
   if (!semail.empty()) sender = (sname.empty() ? "" : sname + " ") + "<" + semail + ">";
   if (!sender.empty()) parts.push_back("差出人: " + sender);
@@ -93,8 +117,8 @@ inline Result extract_msg(const std::string& path) {
 
   // 受信者ストレージ
   for (const auto& r : m.recipients()) {
-    const std::string nm = utf8::trim(r.display_name);
-    const std::string ad = utf8::trim(r.email_address);
+    const std::string nm = utf8::trim(mapi_text(r.display_name));
+    const std::string ad = utf8::trim(mapi_text(r.email_address));
     if (!nm.empty() || !ad.empty())
       parts.push_back(utf8::trim("受信者: " + nm + " <" + ad + ">"));
   }
@@ -119,8 +143,11 @@ inline Result extract_msg(const std::string& path) {
   }
 
   // 本文: 平文優先、無ければ HTML→text
-  std::string body = extractors::dewrap_prose(m.body());
-  if (utf8::trim(body).empty() && !m.html_body().empty()) body = html_to_text(m.html_body());
+  // **dewrap_prose より前に復号すること。** あちらは正規表現を掛けるので、cp932 の
+  // バイト列が届くと PCRE2 が UTF-8 エラーを投げて抽出ごと落ちる（出口の utf8::repair では遅い）。
+  std::string body = extractors::dewrap_prose(mapi_text(m.body()));
+  const std::string html = mapi_text(m.html_body());
+  if (utf8::trim(body).empty() && !html.empty()) body = html_to_text(html);
 
   std::string header;
   for (std::size_t i = 0; i < parts.size(); ++i) {
@@ -134,8 +161,10 @@ inline Result extract_msg(const std::string& path) {
 
   // 添付（filename, data）。ネスト .msg（embedded_message）は呼び出し側で再帰。
   for (auto& att : m.attachments()) {
-    if (!att.filename.empty() && !att.data.empty())
-      res.children.push_back({att.filename, att.data});
+    // ファイル名も非 Unicode のことがある（添付名は候補に載るので化けさせない）。
+    const std::string fn = mapi_text(att.filename);
+    if (!fn.empty() && !att.data.empty())
+      res.children.push_back({fn, att.data});
   }
   return res;
 }

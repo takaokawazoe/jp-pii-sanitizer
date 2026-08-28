@@ -123,9 +123,72 @@ int main(int argc, char** argv) {
     }
     if (jp_ng == 0) std::printf("\n  日本語ファイル名（会議.msg）: OK\n");
   }
+
+  // ---- 非 Unicode(PT_STRING8) の文字列を復号できるか（回帰試験）----
+  //
+  // 日本語 Windows の Outlook は .msg を非 Unicode で保存することがある。そのとき
+  // Aspose の decode_string8 は**バイト列をそのまま返す**（コードページ変換をしない）ので、
+  // 本文が cp932 のまま dewrap_prose の正規表現に届き
+  //   「pcre2 match 失敗: UTF-8 error: isolated byte with 0x80 bit set」
+  // で抽出ごと落ちていた（利用者からの報告）。**出口の utf8::repair では遅い**——
+  // その手前で正規表現が走るため。今は msg::mapi_text が入口で UTF-8 に揃える。
+  //
+  // .msg のフィクスチャを組み立てて端から端まで通す方が強いが、Aspose の書き出し
+  // （mapi_message::create + save）が落ちるため断念した。ここでは境界の関数を直接見る:
+  // extract_msg 内の全ての Aspose 由来文字列がこの関数を通ることは、実装側で担保する。
+  int s8_ng = 0;
+  {
+    // cp932 のバイト列。ソースは /utf-8 でコンパイルされるので、非 UTF-8 は \xNN で書く。
+    const std::string subj_cp932 = "\x90\xBF\x8B\x81\x8F\x91\x82\xCC\x8C\x8F";  // 請求書の件
+    const std::string body_cp932 =
+        "\x8E\x52\x93\x63\x91\xBE\x98\x59\x82\xC5\x82\xB7\x81\x42"  // 山田太郎です。
+        "\n\n"                                                      // dewrap_prose の区切り
+        "\x8A\x94\x8E\xAE\x89\xEF\x8E\xD0\x82\xA0\x82\xA8\x82\xBC\x82\xE7\x95\xA8\x8E\x59"
+        "\x82\xCC\x8C\x8F\x81\x41\x82\xE6\x82\xEB\x82\xB5\x82\xAD\x82\xA8\x8A\xE8\x82\xA2"
+        "\x82\xB5\x82\xDC\x82\xB7\x81\x42";  // 株式会社あおぞら物産の件、よろしくお願いします。
+
+    // 前提の確認: このバイト列は UTF-8 としては不正（＝ PCRE2 が拒む形）
+    if (utf8::is_valid(body_cp932)) {
+      std::printf("  NG: 試験データが cp932 になっていない（UTF-8 として妥当だった）\n");
+      ++s8_ng;
+    }
+    const std::string subj = msg::mapi_text(subj_cp932);
+    const std::string body = msg::mapi_text(body_cp932);
+    if (!utf8::is_valid(subj) || !utf8::is_valid(body)) {
+      std::printf("  NG: mapi_text が不正な UTF-8 を返した\n");
+      ++s8_ng;
+    }
+    if (subj != "請求書の件") {
+      std::printf("  NG: 件名の復号が違う: %s\n", subj.c_str());
+      ++s8_ng;
+    }
+    for (const char* want : {"山田太郎", "株式会社あおぞら物産"}) {
+      if (body.find(want) == std::string::npos) {
+        std::printf("  NG: 本文に %s が無い\n", want);
+        ++s8_ng;
+      }
+    }
+    // **本番と同じ順序で正規表現に通す。** ここが落ちていたのが報告された症状。
+    try {
+      const std::string dewrapped = extractors::dewrap_prose(body);
+      if (dewrapped.find("山田太郎") == std::string::npos) {
+        std::printf("  NG: dewrap_prose 後に本文が失われた\n");
+        ++s8_ng;
+      }
+    } catch (const std::exception& e) {
+      std::printf("  NG: dewrap_prose が落ちた: %s\n", e.what());
+      ++s8_ng;
+    }
+    // 既に UTF-8 のものは素通し（Unicode の .msg の挙動を変えていないこと）
+    if (msg::mapi_text("山田太郎") != "山田太郎") {
+      std::printf("  NG: UTF-8 の文字列が素通しされていない\n");
+      ++s8_ng;
+    }
+    if (s8_ng == 0) std::printf("  非 Unicode(cp932) の文字列: OK\n");
+  }
   std::printf("\n  平文本文の msg: PII取りこぼしゼロ %zu/%zu\n", ok, ok + ng);
   std::printf("  HTML本文の msg（bs4近似）: 完全被覆 %d/%d（参考）\n", html_ok, html_total);
-  const bool pass = (ng == 0 && ok > 0 && jp_ng == 0);
+  const bool pass = (ng == 0 && ok > 0 && jp_ng == 0 && s8_ng == 0);
   std::printf("\n  === Phase 4c（msg・PII取りこぼしゼロ）: %s ===\n",
               pass ? "PASS (Python の検出PIIを1つも落とさない)" : "FAIL");
   return pass ? 0 : 1;

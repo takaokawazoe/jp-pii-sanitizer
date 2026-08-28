@@ -10,6 +10,7 @@
 // 使い方: phase4_eml [testdata/eml のディレクトリ]
 
 #include <cstdio>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -43,7 +44,14 @@ void expect_eq(const std::string& got, const std::string& want, const char* what
 
 eml::Result load(const std::string& dir, const std::string& name) {
   current = name;
-  return eml::extract_eml(dir + "/" + name);
+  // 例外は握って NG として報告する。握らないと（ヘッダに生の 8bit がある .eml で
+  // PCRE2 が投げたときのように）試験が異常終了して、どの件が駄目なのか出ない。
+  try {
+    return eml::extract_eml(dir + "/" + name);
+  } catch (const std::exception& e) {
+    fail(std::string("抽出が例外で落ちた"), e.what());
+    return {};
+  }
 }
 
 }  // namespace
@@ -136,10 +144,24 @@ int main(int argc, char** argv) {
     expect_absent(r.text, "\xEF\xBF\xBD");
   }
 
+
+  // ---- 08: ヘッダに生の 8bit バイト（encoded-word を使わない）----
+  // 規格違反だが日本語のメーラで実在する。UTF-8 を保証せず正規表現に渡すと PCRE2 が
+  // 「isolated byte with 0x80 bit set」で落ち、抽出ごと失敗する（.msg で報告された症状の
+  // .eml 版）。decode_mime_header が入口で受け止めること。
+  {
+    const auto r = load(dir, "08_raw8bit_header.eml");
+    expect_eq(r.error, "", "error");
+    expect_contains(r.text, "件名: 【重要】山田太郎さんの件");
+    expect_contains(r.text, "差出人: 佐藤 美咲 <sato@example.co.jp>");
+    expect_contains(r.text, "担当は鈴木花子です。");
+    expect_absent(r.text, "\xEF\xBF\xBD");  // U+FFFD が出ていたら復号に失敗している
+  }
+
   if (failures) {
     std::printf("\n  === Phase 4d（.eml 抽出）: FAIL (%d) ===\n", failures);
     return 1;
   }
-  std::printf("\n  === Phase 4d（.eml 抽出）: PASS (7 件) ===\n");
+  std::printf("\n  === Phase 4d（.eml 抽出）: PASS (8 件) ===\n");
   return 0;
 }
