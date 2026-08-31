@@ -107,6 +107,27 @@ inline bool is_department(const std::string& name) {
   return false;
 }
 
+/// ファイル拡張子か（完全一致・大小無視）。
+///
+/// 【ファイル名】ブロックと【添付】の一覧はどちらも検知対象に載せている
+/// （`社員名簿_山田太郎_確認用.csv` のようにファイル名自体が PII を持つため）。その副作用で
+/// 拡張子まで NER が拾う。利用者からの報告で `msg` が人名候補として出ていた。
+///
+/// **完全一致で見る。** 部分一致にすると「PDF出版」「MSG商会」のような社名を巻き込む。
+/// 拡張子そのものは、日本語の文書に出てくる限り人名でも社名でもない。
+inline bool is_file_extension(const std::string& s) {
+  static const std::vector<std::string> EXT = {
+      // このツールが読む形式
+      "msg", "eml", "docx", "pptx", "xlsx", "pdf", "txt", "csv", "md",
+      // 添付ファイル名に普通に出てくるもの
+      "doc", "xls", "ppt", "rtf", "zip", "7z", "rar", "htm", "html", "xml",
+      "json", "log", "jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff",
+      "mp3", "mp4", "mov", "wav", "eml", "ics", "vcf"};
+  std::string t;
+  for (char c : s) t += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return std::find(EXT.begin(), EXT.end(), t) != EXT.end();
+}
+
 /// メール/電話/郵便/会社マーカーのうち最初に現れる手前まで（文字単位）。
 inline std::string cut_before_pii(const Patterns& P, const std::string& s) {
   const auto off = utf8::char_offsets(s);
@@ -372,6 +393,11 @@ inline std::vector<Candidate> extract_candidates(const Patterns& P, sudachi::Ana
     // 同じ 1 文字まで巻き込んで置換され、**往復（マスク→逆置換）が壊れる**（実測）。
     if ((c.entity_type == "PERSON" || c.entity_type == "ORGANIZATION") &&
         utf8::char_len(c.text) == 1 && !furigana::is_single_kanji(c.text))
+      return true;
+    // **ファイル拡張子は人名・社名ではない。** 【ファイル名】と【添付】の一覧を検知対象に
+    // 載せている副作用で、拡張子まで NER が拾う（利用者からの報告: `msg` が人名候補）。
+    if ((c.entity_type == "PERSON" || c.entity_type == "ORGANIZATION") &&
+        is_file_extension(c.text))
       return true;
     if (!has_letter(P, c.text)) return true;  // 数字・記号だけ
     if (!MASK_DEPARTMENTS && c.entity_type == "ORGANIZATION" && is_department(c.text))

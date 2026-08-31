@@ -254,3 +254,6 @@
 {"file":"single_kana_noise.txt","type":"NEGATIVE","text":"イ"}
 {"file":"single_kana_noise.txt","type":"NEGATIVE","text":"X"}
 {"file":"single_kana_noise.txt","type":"NEGATIVE","text":"Z"}
+{"file":"single_kana_noise.txt","type":"NEGATIVE","text":"msg"}
+{"file":"single_kana_noise.txt","type":"NEGATIVE","text":"xlsx"}
+{"file":"single_kana_noise.txt","type":"NEGATIVE","text":"csv"}
