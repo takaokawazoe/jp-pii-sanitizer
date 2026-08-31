@@ -276,6 +276,15 @@ inline std::vector<Candidate> extract_candidates(const Patterns& P, sudachi::Ana
     }
 
     for (auto surface : surfaces) {
+      // **改行の手前で切る。** 氏名にも社名にも改行は入らない。NER のスパンは行をまたぐ
+      // ことがあり、person_name_core / org_name_core は人名形態素やマーカーが見つからない
+      // ときスパンをそのまま返す設計（未知の姓を削りすぎないため）なので、ここで切らないと
+      // 次の行の語がくっついたまま候補になる。
+      //   実測1: メール引用の「川添」の後に空行を挟んだ "From:" と繋がり「添 From」
+      //   実測2: 「競合A社／改行／グローバルソリューションズ合同会社」が 1 社名
+      // **落とすのではなく切る**——2 は Python 側の期待値が「A社」で、切れば一致する。
+      const auto nl = surface.find_first_of("\r\n");
+      if (nl != std::string::npos) surface.erase(nl);
       surface = furigana::trim(surface);
       if (surface.empty()) continue;
       const auto key = std::make_pair(strip_all_ws(P, surface), sp.type);
@@ -354,16 +363,15 @@ inline std::vector<Candidate> extract_candidates(const Patterns& P, sudachi::Ana
     if ((c.entity_type == "PERSON" || c.entity_type == "ORGANIZATION") &&
         furigana::has_no_noun(sd, c.text))
       return true;
-    // **1 文字の仮名だけの候補を捨てる。** 候補には長さの門が一切無く、NER が拾った
-    // 1 文字がそのまま人名・社名として出ていた（利用者からの報告: ク・ホ・イ が人名扱い）。
-    // 実測でも、区分記号のように孤立したカタカナや、字間の空いた「ヤ マ ダ」の断片が
-    // PERSON 候補になる。
+    // **1 文字の候補は捨てる（漢字を除く）。** 候補には長さの門が一切無く、NER が拾った
+    // 1 文字がそのまま人名・社名として出ていた。利用者からの報告で、仮名 1 文字（ク・ホ・イ）
+    // と英字 1 文字の両方が実際に出ている。**漢字 1 文字だけは残す**——「林」「森」「原」の
+    // ような姓が実在するため。2 文字以上（ケン・リサ）も残す。
     //
-    // 仮名 1 文字の人名・社名は存在しないので切ってよい。**漢字は切らない**——
-    // 「林」「森」「原」のような 1 文字の姓が実在する。2 文字以上の仮名（ケン・リサ 等）も
-    // 実在するので、長さ 1 に限る。
+    // これは過剰マスクでは済まない: 1 文字をトークンに置き換えると、本文中の無関係な
+    // 同じ 1 文字まで巻き込んで置換され、**往復（マスク→逆置換）が壊れる**（実測）。
     if ((c.entity_type == "PERSON" || c.entity_type == "ORGANIZATION") &&
-        utf8::char_len(c.text) == 1 && furigana::is_all_kana(c.text))
+        utf8::char_len(c.text) == 1 && !furigana::is_single_kanji(c.text))
       return true;
     if (!has_letter(P, c.text)) return true;  // 数字・記号だけ
     if (!MASK_DEPARTMENTS && c.entity_type == "ORGANIZATION" && is_department(c.text))

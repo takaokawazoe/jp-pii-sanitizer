@@ -252,3 +252,5 @@
 {"file":"single_kana_noise.txt","type":"NEGATIVE","text":"ク"}
 {"file":"single_kana_noise.txt","type":"NEGATIVE","text":"ホ"}
 {"file":"single_kana_noise.txt","type":"NEGATIVE","text":"イ"}
+{"file":"single_kana_noise.txt","type":"NEGATIVE","text":"X"}
+{"file":"single_kana_noise.txt","type":"NEGATIVE","text":"Z"}

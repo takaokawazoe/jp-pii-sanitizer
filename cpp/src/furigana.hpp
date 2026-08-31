@@ -191,25 +191,35 @@ inline std::string kata_to_hira(const std::string& s) {
   return out;
 }
 
-/// 全部が仮名（ひらがな・カタカナ・半角カナ）か。空文字は false。
+/// 1 文字の候補として残してよいか（＝その 1 文字が漢字か）。
 ///
-/// 1 文字だけの候補を落とす判定に使う。**漢字は含めない**——「林」「森」のような
-/// 1 文字の姓が実在するため。仮名 1 文字の人名・社名は無いので、こちらだけ切る。
-inline bool is_all_kana(const std::string& s) {
+/// **漢字だけ残す。** 「林」「森」「原」のような 1 文字の姓が実在するため。
+/// 仮名 1 文字（ク・ホ・イ）も英字 1 文字（A・B・X）も、人名・社名としては実在せず、
+/// 候補一覧を埋めるだけになる（どちらも利用者からの報告で実際に出ていた）。
+/// 判定は「漢字か」の 1 本にしてある——仮名と英字で別々に持つと、次に全角英字や
+/// キリル文字が出たときにまた足すことになる。
+inline bool is_single_kanji(const std::string& s) {
   const auto off = char_offsets(s);
-  if (off.size() < 2) return false;
-  for (std::size_t i = 0; i + 1 < off.size(); ++i) {
-    const auto c = utf8::slice(s, off, i, i + 1);
-    if (c.size() != 3) return false;  // ASCII・4バイト文字は仮名ではない
-    const unsigned cp = ((static_cast<unsigned char>(c[0]) & 0x0F) << 12) |
-                        ((static_cast<unsigned char>(c[1]) & 0x3F) << 6) |
-                        (static_cast<unsigned char>(c[2]) & 0x3F);
-    const bool hira = cp >= 0x3041 && cp <= 0x309F;  // ぁ..ゟ
-    const bool kata = cp >= 0x30A0 && cp <= 0x30FF;  // ゠..ヿ（長音符 ー を含む）
-    const bool half = cp >= 0xFF66 && cp <= 0xFF9F;  // ｦ..ﾟ（半角カナ）
-    if (!(hira || kata || half)) return false;
+  if (off.size() != 2) return false;  // 1 文字でなければ対象外
+  const auto c = utf8::slice(s, off, 0, 1);
+  unsigned cp = 0;
+  if (c.size() == 3) {
+    cp = ((static_cast<unsigned char>(c[0]) & 0x0F) << 12) |
+         ((static_cast<unsigned char>(c[1]) & 0x3F) << 6) |
+         (static_cast<unsigned char>(c[2]) & 0x3F);
+  } else if (c.size() == 4) {
+    cp = ((static_cast<unsigned char>(c[0]) & 0x07) << 18) |
+         ((static_cast<unsigned char>(c[1]) & 0x3F) << 12) |
+         ((static_cast<unsigned char>(c[2]) & 0x3F) << 6) |
+         (static_cast<unsigned char>(c[3]) & 0x3F);
+  } else {
+    return false;  // ASCII 1 文字
   }
-  return true;
+  return (cp >= 0x4E00 && cp <= 0x9FFF) ||    // CJK統合漢字
+         (cp >= 0x3400 && cp <= 0x4DBF) ||    // 拡張A
+         (cp >= 0xF900 && cp <= 0xFAFF) ||    // 互換漢字（﨑 等）
+         (cp >= 0x20000 && cp <= 0x2FA1F) ||  // 拡張B以降（𠮷 等）
+         cp == 0x3005;                        // 々
 }
 
 /// 漢字氏名のカナ/かな読みの表記ゆれ候補（furigana.readings の移植）。
