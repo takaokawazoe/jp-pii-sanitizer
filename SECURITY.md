@@ -17,10 +17,16 @@ addition to ordinary vulnerabilities:
   success. (*Over*-masking, and misses that the opt-out design expects a human to
   catch, are quality issues, not security issues — see the README disclaimer.)
 - **The mapping (対応表) escaping its intended boundary.**
-- **Data leaving the machine.** The app runs fully offline; any outbound network
-  request would be a vulnerability.
-- Memory-safety issues in the native parsers (OOXML/PDF/MSG) reachable from a
-  crafted input document.
+- **Data leaving the machine.** This application makes no network calls, and that is
+  now enforced rather than merely true: navigation is blocked, new windows are refused,
+  and the UI page carries a `default-src 'none'` CSP. Any outbound request originating
+  from this application's code would be a vulnerability. (The WebView2 *runtime* is a
+  Microsoft component and may contact Microsoft on its own; that is outside our control
+  and out of scope.)
+- Memory-safety issues in the native parsers (OOXML/PDF/MSG/EML) reachable from a
+  crafted input document. Resource exhaustion counts: ZIP entries are capped and the
+  regex engine has match and depth limits, so a crafted file should not be able to
+  exhaust memory or hang the process.
 
 ### Reporting a vulnerability
 
@@ -48,9 +54,14 @@ fictional names/addresses/numbers.
   安全ゲートが成功と報告する入力。（*過剰*マスクや、opt-out 設計が人によるチェックを前提と
   している検出漏れは、品質の問題でありセキュリティ問題ではありません。README の免責参照。）
 - **対応表（マッピング）が意図した境界の外へ出ること。**
-- **データが端末外へ出ること。** 本アプリは完全オフラインで動作します。外向きのネットワーク
-  要求はすべて脆弱性です。
-- 細工した入力文書から到達可能な、ネイティブパーサ（OOXML/PDF/MSG）のメモリ安全性の問題。
+- **データが端末外へ出ること。** 本アプリはネットワーク通信を行いません。これは
+  「そう書いてある」だけでなく**実装で強制**しています——遷移を全拒否し、新規ウィンドウを
+  拒み、UI に `default-src 'none'` の CSP を入れてあります。本アプリのコードから出る外向きの
+  要求はすべて脆弱性です。（WebView2 の**ランタイム自体**は Microsoft の部品で独自に通信し得ます。
+  そこは制御外で対象外です。）
+- 細工した入力文書から到達可能な、ネイティブパーサ（OOXML/PDF/MSG/EML）のメモリ安全性の問題。
+  資源の枯渇も含みます——ZIP の展開サイズに上限を置き、正規表現には照合回数と深さの上限を
+  設けてあるので、細工したファイルでメモリを食い潰したり固まったりしないはずです。
 
 ### 脆弱性の報告
 

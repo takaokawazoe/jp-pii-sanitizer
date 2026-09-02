@@ -89,6 +89,25 @@ the GUI. It exposes three commands:
    modal dialog) and the CLI (a stderr warning) say so explicitly, because
    silence would read as "attachments were handled".
 
+10. **`X-` headers are dropped, not merely ignored.** They are machine plumbing —
+    Exchange internals, spam-filter verdicts, tracking IDs — and on a real message they
+    were 77% of the extracted text, with the longest single line at 2,640 characters.
+    Every candidate they produced was junk (`PROD.OUTLOOK.COM`, `com`, `mkto`,
+    `Anonymous`, `INB`), and a confidence threshold cannot separate those: the worst of
+    them scored 0.9935 while a real hospital name scored 0.7278. The recognizer is not
+    unsure; it is confidently wrong, because a run of domains and IDs genuinely looks
+    like a list of organizations. One of these headers was also a leak — `X-KumoRef`
+    carried the recipient's address base64-encoded, which no plaintext-address pattern
+    can match. Keeping them but excluding them from detection would have been worse:
+    the payload would stay just as large *and* that address would go out unmasked.
+    Across two real messages, no address existed only in an `X-` header.
+
+11. **Furigana stored by Excel is not cell content.** Japanese Excel keeps the reading
+    you type into a cell inside the same shared-string entry (`<rPh>`). Collecting every
+    `<t>` made a cell read as `山田太郎ヤマダタロウ` — a string that appears neither in
+    Excel's own display nor in openpyxl, and a source of stray katakana candidates.
+    A *furigana column* — a real cell you can see — is still processed.
+
 ### Pipeline
 
 - **detect** splits inputs: prose docs go through NER → candidate JSONL; csv/xlsx
@@ -202,6 +221,22 @@ cross-platform claim is checked on every push, not just asserted.
    送られないので、これは漏洩ではなく利便性の取引でしかない。添付を処理したい利用者は、
    保存して普通のファイルとして読み込む。黙っていると「添付も処理された」と読まれるので、
    GUI はモーダルダイアログで、CLI は stderr で明示する。
+
+10. **`X-` ヘッダは無視ではなく捨てる。** あれは機械可読の配管（Exchange の内部 ID・
+    迷惑メール判定・追跡 ID）で、実物のメールでは**抽出テキストの 77%**、最長の 1 行は
+    2,640 字あった。そこから出る候補は `PROD.OUTLOOK.COM` / `com` / `mkto` / `Anonymous` /
+    `INB` で全部ゴミ。**確信度では切れない**——最悪のゴミが 0.9935、本物の病院名が 0.7278 と
+    逆転している。モデルは迷っておらず、自信を持って間違えている（ドメインと ID の羅列は
+    モデルから見て「組織名のリスト」に一番よく似ている）。さらに `X-KumoRef` は宛先アドレスを
+    base64 で持っており、平文のアドレス形にマッチしないため**マスクを素通り**していた。
+    「残して検知対象外にする」は逆に悪い——AI に渡る量は減らないうえ、そのアドレスが
+    素通りになる。実物 2 通で、`X-` にしか無いアドレスは 0 件だった。
+
+11. **Excel のふりがなはセルの中身ではない。** 日本語版 Excel はセルに入力したふりがなを
+    同じ共有文字列の中に `<rPh>` として持つ。すべての `<t>` を拾うとセルの値が
+    `山田太郎ヤマダタロウ` になり、**Excel の画面にも openpyxl にも現れない文字列**が
+    本文に混ざる（カタカナの断片が人名候補として出る原因にもなっていた）。
+    セルの値として見えている「フリガナ列」は今までどおり対象。
 
 ### パイプライン
 

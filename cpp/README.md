@@ -27,22 +27,29 @@ green on both WSL/Linux and Windows/MSVC.**
 | `phase0_parity` | input_ids → labels matches torch | **4873/4873** |
 | `phase1_sudachi` | morphology / name-core matches SudachiPy | **398/398 · 120/120 · 120/120** |
 | `phase2_regex` | 8 regexes match Python `re` | **240/240** |
-| `phase2_hf` | HF simple aggregation matches Python | **267/267** |
-| `phase2_pipeline` | full detection pipeline candidates match Python | **155/155** |
+| `phase2_hf` | HF aggregation (word-level for Latin) | **274/274** |
+| `phase2_pipeline` | full detection pipeline candidates | **164/164** |
 | `phase3_tokenize` | tokenize / reverse / furigana folding match Python | readings 68/68 |
-| `phase4_extract` | extracted text (docx/pptx/xlsx/csv/txt/pdf) matches Python | **8/8** |
-| `phase4_msg` | .msg loses none of Python's detected PII | 10/10 |
-| `phase4_eml` | .eml extraction: MIME, charsets, attachment names | 7/7 |
-| `phase5_core` | safety gate / highlight / bundling match Python | spans 5/5 · gate 10/10 |
+| `phase4_extract` | extracted text (docx/pptx/xlsx/csv/txt/pdf) matches Python; xlsx furigana excluded | **8/8** |
+| `phase4_msg` | .msg loses none of Python's detected PII; Japanese paths; non-Unicode bodies | 10/10 |
+| `phase4_eml` | .eml extraction: MIME, charsets, attachment names, raw 8-bit headers | 8/8 |
+| `phase5_core` | safety gate / highlight / bundling; spans carry their source candidate | spans 5/5 · gate 10/10 |
 
-Candidate-set equality = the eval result (174/175) by construction.
+Some of these expectations have been **deliberately updated** since the port, each as a
+reviewed diff — see "On what the oracles mean now" above. The changes so far: Latin words
+are no longer split mid-word by subword labelling, and spans no longer straddle a chunk
+boundary.
 
 **Detection quality is measured separately, by `eval`** (`./build/eval`, ground truth in
 `samples/eval.jsonl`). Where the conformance tests ask "did the behaviour change?", eval asks
 "how much is actually caught?". It scores three axes — mask rate (recall), false masking
 (precision), and round-trip integrity. Recall alone is not enough, and we know that from
-experience: both of the false-positive bugs fixed recently left the mask rate at 100%. The
-harness reproduces the 174/175 figure the Python evaluation reported at port time.
+experience: both of the false-positive bugs fixed recently left the mask rate at 100%.
+
+At port time the harness reproduced the 174/175 figure from the Python evaluation. The
+ground truth has grown since, as reported problems were turned into permanent samples;
+the current figures are **197/198 masked, 0/24 false positives, 9/10 round-trip**, and CI
+enforces them as a ratchet.
 
 The GUI app
 (`jp-pii-sanitizer.exe`, CMake target `jp_pii_sanitizer`) is these verified cores hosted in WebView2.
@@ -231,17 +238,23 @@ WSL/Linux ＋ Windows(MSVC) の両方で green。**
 | `phase2_hf` | HF の simple 集約が Python と同じスパンを返すか | **267/267** |
 | `phase2_pipeline` | 検知パイプライン全体の候補が Python と一致するか | **155/155** |
 | `phase3_tokenize` | トークン化・逆置換・フリガナ名寄せが Python と一致するか | readings 68/68・各5/5 |
-| `phase4_extract` | docx/pptx/xlsx/csv/txt/pdf の抽出テキストが Python と一致するか | **8/8** |
-| `phase4_msg` | .msg が Python の検出PIIを1つも落とさないか | 平文 10/10 |
-| `phase4_eml` | .eml 抽出（MIME・文字コード・添付ファイル名） | 7/7 |
-| `phase5_core` | 安全ゲート・ハイライト・束ねが Python と一致するか | spans 5/5・gate 10/10・table OK |
+| `phase4_extract` | docx/pptx/xlsx/csv/txt/pdf の抽出テキスト。xlsx のふりがな除外も見る | **8/8** |
+| `phase4_msg` | .msg が検出PIIを1つも落とさないか。日本語パス・非 Unicode 本文も見る | 平文 10/10 |
+| `phase4_eml` | .eml 抽出（MIME・文字コード・添付名・生 8bit ヘッダ） | 8/8 |
+| `phase5_core` | 安全ゲート・ハイライト・束ね。スパンが由来の候補を持つかも見る | spans 5/5・gate 10/10・table OK |
 
-候補一致は、移植時の評価（Python 側 eval 174/175）と同値であることを確認した時点のもの。
+期待値のいくつかは移植後に**意図して更新した**（それぞれ差分をレビューした上で受け入れ）。
+これまでの変更は、ラテン文字の単語がサブワード単位の判定で割れなくなったこと、
+スパンがチャンク境界をまたがなくなったこと。上の「期待値の意味」を参照。
 **検知精度は `eval` で別途測る**（`./build/eval` ・正解は `samples/eval.jsonl`）。適合試験が
 「挙動が変わっていないか」を見るのに対し、eval は「どれだけ捕まえられているか」を測る。
 測る軸は 3 つ——マスク率(recall)・誤検知(precision)・往復健全性。マスク率だけでは足りない
 ことは実地で分かっている（フィラーの誤検知も、同音の姓による往復破壊も、マスク率は
-100% のままだった）。移植時の Python 評価 174/175 を再現済み。
+100% のままだった）。
+
+移植時は Python 評価の 174/175 を再現した。その後、報告された不具合を恒久サンプルに
+変えていく過程で正解データが増え、**現在は マスク 197/198・誤検知 0/24・往復 9/10**。
+CI がラチェットとして下限を守っている。
 GUI アプリ（`jp-pii-sanitizer.exe`・CMake ターゲット `jp_pii_sanitizer`）はこれらの検証済みコアを
 WebView2 に載せたもの。
 

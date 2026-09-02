@@ -29,8 +29,13 @@ NER model (ONNX) plus rule-based recognizers.
 2. **Detect** candidate PII — person names, organizations, addresses, e-mail
    addresses, phone numbers, postal codes. **File names are scanned too**, because
    they are included in the bundled text (`社員名簿_山田太郎_確認用.csv` leaks a name).
+   E-mail addresses, phone numbers and postal codes are always masked automatically,
+   including full-width digits, parenthesised and space-separated forms, and `+81`.
 3. **Confirm** (opt-out): everything is masked by default; you only *uncheck*
    what should stay, and can *manually add* anything the detector missed.
+   Each candidate shows **how many places it will mask**, and clicking it scrolls the
+   preview to that spot — click again for the next one. The number is the mask count,
+   not the detection count, so it always agrees with what you see highlighted.
 4. **Sanitize** — replace detected PII with placeholders and download the result.
    - *Reversible*: `{{PERSON_1}}` with a mapping file (`.jsonl`) you keep private.
      It can optionally be **protected with a passphrase** (Argon2id +
@@ -154,7 +159,12 @@ UI は埋め込みの 1 枚を読むだけで、遷移を全拒否し、CSP を 
    （理由は [docs/cli.md](docs/cli.md#日本語)）。
 2. **検出**: 人名・組織名・住所・メールアドレス・電話番号・郵便番号の候補。
    **ファイル名も検出対象**です（束ねたテキストに載るため。`社員名簿_山田太郎_確認用.csv` は氏名の漏洩になります）。
+   メール・電話・郵便番号は常時自動でマスクします。全角数字、括弧区切り、空白区切り、
+   `+81` の国番号付きも対象です。
 3. **確定（opt-out）**: 既定は全マスク。残すものだけ*チェックを外し*、検出漏れは*手動で追記*できます。
+   候補ごとに**何箇所マスクするか**が出て、クリックするとプレビューのその箇所へ飛びます
+   （続けて押すと次へ）。この数はマスク箇所数で、検知回数ではありません。画面のハイライトと
+   必ず一致します。
 4. **サニタイズ**: 検出した PII をプレースホルダに置換して結果をダウンロード。
    - *可逆*: `{{PERSON_1}}` ＋ 対応表ファイル（`.jsonl`・厳重管理）。
      任意で**パスフレーズ保護**できます（Argon2id + XChaCha20-Poly1305。

@@ -53,6 +53,18 @@ after-replacement can never disagree, including awkward cases like a company nam
 split across a line break or a name written in kana. If the preview and the
 result could drift apart, the operator could not trust either.
 
+This is why the candidate list shows the number of places that will be **masked**
+rather than the number of times the detector fired. Those differ — a name can be
+detected nine times and appear twelve, because three of them belong to a longer
+candidate that claims them first. Showing the detection count would put a number on
+screen that disagrees with the highlights beside it, and would leave candidates whose
+count is non-zero but which mask nothing. The same rule decides what a click does:
+the count, the highlights and the jump target all point at one thing.
+
+A related consequence: whatever is on screen is what gets sent. A block that failed
+to extract only partially still shows its text, because hiding it while still bundling
+it would break this principle in the most dangerous direction.
+
 ### 4. Reversible when you need it — and the key stays yours
 
 Often you want the AI's answer to come back with the real names in place. So
@@ -129,6 +141,15 @@ reproducible. Those properties matter more than any single detection number.
 だからプレビューはマスクと**同じマッチャ**で生成し、「たぶん近い」別経路では作りません。色（前）と
 置換（後）は、社名が行またぎで割れる／名前がカナで書かれる等の厄介な場合も含めて、決して食い違い
 ません。もしプレビューと結果がずれ得るなら、操作者はどちらも信用できません。
+
+候補一覧に出す件数を「検知回数」ではなく「**マスクされる箇所の数**」にしているのはこのためです。
+両者は食い違います——ある氏名が 9 回検知されて 12 回出現する、ということが起きます。差の 3 回は、
+より長い候補が先に取っているからです。検知回数を出すと、隣のハイライトと合わない数字が画面に
+並び、「1 以上と出ているのに 1 箇所もマスクしない候補」も生まれます。クリックの飛び先も同じ規則で
+決めます。件数・ハイライト・ジャンプ先が同じものを指す。
+
+派生して: **画面に出ているものが送られるもの**です。一部だけ抽出に失敗したブロックも本文を
+表示します。隠したまま束ねに入れるのは、この原則を一番危ない向きに破ることになります。
 
 ### 4. 必要なときは可逆に——鍵は手元に
 
