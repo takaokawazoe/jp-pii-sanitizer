@@ -368,9 +368,7 @@ inline Result extract_eml(const std::string& path) {
         if (detail::to_lower(k) == detail::to_lower(key) && !utf8::trim(v).empty())
           hdr_lines.push_back(k + ": " + mime::decode_mime_header(v));
     }
-    for (const auto& [k, v] : hdrs)
-      if (mime::istarts_with(k, "x-") && !utf8::trim(v).empty())
-        hdr_lines.push_back(k + ": " + mime::decode_mime_header(v));
+    // **`X-` ヘッダは採らない**（理由は msg.hpp の同じ箇所。`.eml` も同じ配管が入る）。
     if (!hdr_lines.empty()) {
       std::string block = "【ヘッダ】";
       for (const auto& l : hdr_lines) block += "\n" + l;

@@ -132,9 +132,18 @@ inline Result extract_msg(const std::string& path) {
       for (const auto& [k, v] : hdrs)
         if (k == key && !utf8::trim(v).empty())
           hdr_lines.push_back(k + ": " + decode_mime_header(v));
-    for (const auto& [k, v] : hdrs)
-      if (istarts_with(k, "x-") && !utf8::trim(v).empty())
-        hdr_lines.push_back(k + ": " + decode_mime_header(v));
+    // **`X-` ヘッダは採らない。** かつては全部拾っていたが、実物で測ると害しか無かった:
+    //   - 量: 抽出テキスト 7,007 字のうち 2,606 字（37%）が X- ヘッダだった
+    //   - ノイズ: そこから出る候補は PROD.OUTLOOK.COM / com / mkto / Anonymous / INB の
+    //     5 件で全部ゴミ。NER は散文で訓練されており、ドメインや ID の羅列を渡すと
+    //     「組織名のリスト」として素直に読む（確信度 0.99 で間違える。閾値では切れない）
+    //   - **漏洩**: X-KumoRef の値は base64 で、復号すると
+    //     {"recipient":"...@..."} と宛先アドレスが入っていた。平文のアドレス形に
+    //     マッチしないのでマスクを素通りする
+    //   - 失うもの: 実物 2 通で X- にしか無いアドレスは 0 件。アドレスを持つ X- 行は
+    //     X-Mailfrom だけで、値は Return-Path と同じだった
+    // 残して「検知対象外」にする案もあったが、それだと AI に渡る量は減らないうえ、
+    // 今マスクされているアドレスが素通りになる。**渡さないのが一番強い。**
     if (!hdr_lines.empty()) {
       std::string block = "【ヘッダ】";
       for (const auto& l : hdr_lines) block += "\n" + l;
