@@ -53,12 +53,25 @@ int main(int argc, char** argv) {
     const auto got = ner.spans(text);
 
     if (update) {
+      // **score をスパン単位で引き継ぐ。** 判定に使うのは type/begin/end だけだが、
+      // score は Python 由来の参考情報なので、無意味に落とすと差分が読めなくなる。
+      // 以前は配列を丸ごと差し替えていたため、**1 スパン変わっただけでそのケースの
+      // score が全部消えていた**（実測: 4 行の変更に 137 行の削除が混ざった）。
+      const auto& want = c["hf_spans"];
+      auto carried_score = [&](const hf::Span& g) -> json {
+        if (want.is_array())
+          for (const auto& w : want)
+            if (w.value("type", std::string()) == g.type &&
+                w.value("begin", std::size_t(-1)) == g.begin &&
+                w.value("end", std::size_t(-1)) == g.end && w.contains("score"))
+              return w["score"];
+        return json(g.score);  // 新規・変化したスパンは C++ の値を入れる
+      };
       json arr = json::array();
       for (const auto& g : got)
-        arr.push_back({{"type", g.type}, {"begin", g.begin}, {"end", g.end}});
-      // **一致しているケースには触らない。** 判定に使うのは type/begin/end だけなので、
-      // 丸ごと書き直すと参考情報の score（Python 由来）を落としてしまう。差分も最小に保つ。
-      const auto& want = c["hf_spans"];
+        arr.push_back(
+            {{"type", g.type}, {"begin", g.begin}, {"end", g.end}, {"score", carried_score(g)}});
+      // 一致しているケースには触らない（差分を最小に保つ）
       bool same = want.is_array() && want.size() == arr.size();
       for (std::size_t i = 0; same && i < arr.size(); ++i)
         same = want[i].value("type", std::string()) == got[i].type &&

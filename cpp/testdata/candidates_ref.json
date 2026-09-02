@@ -649,17 +649,17 @@
     },
     {
      "count": 1,
+     "text": "LANDSCAPE",
+     "type": "ORGANIZATION"
+    },
+    {
+     "count": 1,
      "text": "LEGAL & FINANCE",
      "type": "ORGANIZATION"
     },
     {
      "count": 1,
      "text": "SUPPORT & OPERATIONS",
-     "type": "ORGANIZATION"
-    },
-    {
-     "count": 1,
-     "text": "TIVE LANDSCAPE",
      "type": "ORGANIZATION"
     },
     {
@@ -767,9 +767,9 @@
      "type": "PERSON"
     },
     {
-     "begin": 310,
+     "begin": 315,
      "end": 324,
-     "score": 0.555303,
+     "score": 0.5712717175483704,
      "type": "ORGANIZATION"
     },
     {
@@ -1638,20 +1638,8 @@
     },
     {
      "begin": 1115,
-     "end": 1117,
-     "score": 0.643812,
-     "type": "ORGANIZATION"
-    },
-    {
-     "begin": 1117,
-     "end": 1123,
-     "score": 0.652785,
-     "type": "PERSON"
-    },
-    {
-     "begin": 1123,
      "end": 1139,
-     "score": 0.929105,
+     "score": 0.8526456356048584,
      "type": "ORGANIZATION"
     },
     {

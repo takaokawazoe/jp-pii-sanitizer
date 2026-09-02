@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
+#include <cstdlib>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -122,6 +124,54 @@ class Ner {
       }
       const float score = std::exp(row[best] - mx) / sum;
       toks.push_back({id2label_.at(static_cast<int>(best)), score, enc.begins[t], enc.ends[t]});
+    }
+
+    // サブワードとラベルを覗く口（`JPPII_DUMP_TOKENS=1` で有効）。
+    // NER の挙動は「どのサブワードにどのラベルが付いたか」を見ないと診断できない。
+    // 下の単語集約はこれで実測してから設計した。既定では何もしない。
+    if (std::getenv("JPPII_DUMP_TOKENS")) {
+      const auto coff = utf8::char_offsets(chunk);
+      for (const auto& t : toks)
+        std::fprintf(stderr, "TOK [%s] %s %.3f (%zu,%zu)\n",
+                     utf8::slice(chunk, coff, t.begin, t.end).c_str(), t.label.c_str(),
+                     t.score, t.begin, t.end);
+    }
+    // ---- ラテン文字の単語は、サブワードで判定が割れないように 1 つのラベルに揃える ----
+    //
+    // ここまでは HF の aggregation_strategy="simple" と同じで、**サブワード単位**で
+    // ラベルを決めて同じラベルが続く間だけ結合する。そのため 1 つの単語が割れる:
+    //   利用者からの報告（実測のトークン列）
+    //     Ta  → PERSON       →「Ta」が人名候補
+    //     n   → O            → 捨てられる（"間の n だけ引っかからない"）
+    //     aka → ORGANIZATION →「aka, Mamoru」が社名候補
+    // 単語の途中で判定が変わっているだけなので、単語単位で揃えれば消える。
+    //
+    // **ラテン文字に限る。** HF の "first"/"average" は fast tokenizer の word_ids を使うが、
+    // あれは空白で単語を切る。日本語には空白が無いので、同じことをすると
+    //   月(16,17) 次(17,18) 報告(18,20) ... と全て隣接しており**一文が 1 単語**になる。
+    // 日本語側は今までどおりサブワード単位のまま触らない。
+    //
+    // 記号も切れ目にする。`aka`(39,42) と `,`(42,43) は隣接しているので、
+    // 英数字だけを単語の構成文字とみなさないと「Tanaka,」が 1 単語になる。
+    {
+      const auto coff = utf8::char_offsets(chunk);
+      auto is_word_char_tok = [&](const Tok& t) {
+        const std::string s = utf8::slice(chunk, coff, t.begin, t.end);
+        if (s.empty()) return false;
+        for (unsigned char c : s)
+          if (!std::isalnum(c)) return false;  // ASCII 英数のみ（日本語も記号も除く）
+        return true;
+      };
+      std::size_t w = 0;
+      while (w < toks.size()) {
+        std::size_t x = w + 1;
+        if (is_word_char_tok(toks[w]))
+          while (x < toks.size() && is_word_char_tok(toks[x]) && toks[x].begin == toks[x - 1].end)
+            ++x;
+        // 先頭サブワードのラベルに揃える（HF の aggregation_strategy="first" 相当）
+        for (std::size_t k = w + 1; k < x; ++k) toks[k].label = toks[w].label;
+        w = x;
+      }
     }
 
     // group_entities: 連続する同一タグをまとめる。ラベルに B-/I- 接頭辞が無いモデルなので
