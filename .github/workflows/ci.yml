@@ -18,7 +18,9 @@ jobs:
       JPPII_REPO: ${{ github.repository }}
       JPPII_TAG: v0.1.0
     steps:
-      - uses: actions/checkout@v4
+      # Actions はタグではなく commit SHA で固定する。タグは動かせるので、上流が差し替わると
+      # 黙って別のコードが走る。更新は SHA を書き換える意図的な操作にする。
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
 
       - name: apt dependencies
         run: |
@@ -27,6 +29,8 @@ jobs:
           sudo apt-get install -y build-essential cmake ninja-build pkg-config unzip curl \
                                   libsodium-dev
 
+      # rustup のインストーラはバージョン付きの配布物が無く、ハッシュ固定ができない。
+      # ここは**未固定であることを承知の上**で使っている（残っている供給網の穴）。
       - name: rust toolchain (tokenizer / sudachi shims)
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
@@ -46,12 +50,15 @@ jobs:
           tar xzf pugixml-1.14.tar.gz && mv pugixml-1.14 pugixml
           curl -fsSL -o pdfium.tgz "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7947/pdfium-linux-x64.tgz"
           mkdir pdfium && tar xzf pdfium.tgz -C pdfium
-          git clone --depth 1 https://github.com/aspose-email-foss/Aspose.Email-FOSS-for-CPP aspose-email
+          # **commit で固定する。** ここだけ可変参照（HEAD 追従）で、上流が改変されると
+          # 黙ってビルドに入っていた。他の third_party は URL でバージョンが固定されている。
+          git clone https://github.com/aspose-email-foss/Aspose.Email-FOSS-for-CPP aspose-email
+          (cd aspose-email && git checkout -q fef9c934c3ad7a207c97cc24546176e678f577af)
           (cd aspose-email && git apply ../../patches/aspose-any_to_string-binary.patch)
 
       - name: cache model + dictionary bundle
         id: models-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: cpp/models
           key: models-${{ env.JPPII_TAG }}
@@ -139,11 +146,11 @@ jobs:
       # 「どれだけ捕まえられているか」を測る。
       #
       # 下限はラチェット。**Windows/MSVC と ubuntu で同一の数値が出ることを実測してから**
-      # 設定した（189/190・往復 8/9・誤検知 0/22）。ONNX も PDFium も別ビルドなので事前には
+      # 設定した（197/198・往復 9/10・誤検知 0/24）。ONNX も PDFium も別ビルドなので事前には
       # 保証が無く、1 回測ってから決めた。
       #
       # 下げるときは意図的な判断として下げること（精度を落とす変更を黙って通さないための門）。
       # 誤検知は閾値ではなく真偽なので、指定が無くても 1 件でもあれば eval は非ゼロ終了する。
       - name: eval (detection quality)
         working-directory: cpp
-        run: ./build/eval --data models --samples ../samples --min-mask 189 --min-roundtrip 8
+        run: ./build/eval --data models --samples ../samples --min-mask 197 --min-roundtrip 9

@@ -1,5 +1,12 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><title>PIIサニタイザ</title>
+<html lang="ja"><head><meta charset="utf-8">
+<!-- **外部への接続を CSP でも塞ぐ。** この UI は NavigateToString で読み込む 1 枚で、
+     外部リソースを一切参照しない。default-src 'none' にしておけば、万一 XSS が成立しても
+     fetch/XHR/画像ビーコンで本文や対応表を外へ出す先が無い。
+     native 側でも NavigationStarting を全拒否している（winmain.cpp）。多層防御。 -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action 'none'; base-uri 'none'">
+<title>PIIサニタイザ</title>
 <style>
  :root{--cand:#ffe08a;--auto:#a8d8ff}
  html,body{height:100%}
@@ -118,7 +125,8 @@
         + out.slice(10,15).join('')+'-'+out.slice(15,20).join('');
  }
  const $=id=>document.getElementById(id);
- const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // 属性値に入れても壊れないよう " と ' も潰す（&<> だけだと属性に差し込んだ瞬間に穴になる）
+ const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
  const send=o=>{o.id=seq++; window.chrome.webview.postMessage(JSON.stringify(o)); return o.id;};
 
  // タブ切り替え（サニタイズ ①②③ / 結果 / 逆置換 ④）
@@ -137,7 +145,7 @@
    for(const [b,e,cat] of sorted){
      if(b<pos) continue;
      out+=esc(cp.slice(pos,b).join(''));
-     out+='<mark class="'+catClass(cat)+'" title="'+cat+'">'+esc(cp.slice(b,e).join(''))+'</mark>';
+     out+='<mark class="'+catClass(cat)+'" title="'+esc(cat)+'">'+esc(cp.slice(b,e).join(''))+'</mark>';
      pos=e;
    }
    out+=esc(cp.slice(pos).join(''));
@@ -199,6 +207,14 @@
        at.textContent='⚠ 添付 '+b.attachments.length+' 件は中身を処理していません（ファイル名のみ対象）: '
                      +b.attachments.join(' / ');
        el.appendChild(at);
+     }
+     if(b.placeholder_collisions && b.placeholder_collisions.length){
+       // 逆置換は単純置換なので、元文書に同じ綴りがあるとそこにも実名が入る。
+       const pc=document.createElement('div');
+       pc.style.cssText='font-size:12px;color:#c00;margin:2px 0';
+       pc.textContent='⚠ 本文にトークンと同じ形の文字列があります（復元時に実名が差し込まれます）: '
+                     +b.placeholder_collisions.join(' / ');
+       el.appendChild(pc);
      }
      if(b.error){
        const er=document.createElement('div'); er.className='leak';

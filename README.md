@@ -11,9 +11,12 @@ Windows 向けの、ネイティブ・オフラインの日本語 PII サニタ�
 
 It detects personal information in office documents, replaces it with
 placeholders before you send text to an external AI, and can restore the real
-values afterward. It runs fully on-device — no network calls, no data leaves the
-machine. The detection core is a single Japanese NER model (ONNX) plus
-rule-based recognizers.
+values afterward. It runs on-device: **this application makes no network calls**,
+and the UI is loaded from a single embedded page with navigation blocked and a
+`default-src 'none'` CSP, so nothing can reach out even if the page were compromised.
+(The WebView2 *runtime* is a Microsoft component and may talk to Microsoft on its own —
+that is outside this application's control.) The detection core is a single Japanese
+NER model (ONNX) plus rule-based recognizers.
 
 > ⚠️ **This tool reduces the risk of leaking personal information. It does not
 > guarantee that every piece of PII is removed.** See [Disclaimer](#disclaimer).
@@ -135,7 +138,10 @@ All sample and test data is synthetic — no real personal information is includ
 ## 日本語
 
 オフィス文書に含まれる個人情報を検出し、社内外の AI に渡す前にプレースホルダへ置き換え、
-後から実名に戻せます。すべて端末内で完結し、ネットワーク通信は行わず、データは外に出ません。
+後から実名に戻せます。端末内で完結します。**本アプリはネットワーク通信を行いません**。
+UI は埋め込みの 1 枚を読むだけで、遷移を全拒否し、CSP を `default-src 'none'` にしてあるので、
+万が一 UI を乗っ取られても外へ出る先がありません。（WebView2 の**ランタイム自体**は Microsoft の
+部品で、独自に Microsoft と通信し得ます。そこは本アプリの制御外です。）
 検知の中核は単一の日本語 NER モデル（ONNX）＋ルールベース認識器です。
 
 > ⚠️ **本ツールは個人情報の漏えいリスクを下げますが、すべての PII の除去を保証しません。**

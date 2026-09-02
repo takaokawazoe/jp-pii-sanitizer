@@ -40,8 +40,20 @@ class Regex {
       throw std::runtime_error("pcre2_compile 失敗 @" + std::to_string(off) + ": " +
                                reinterpret_cast<char*>(buf) + "  /  " + pattern);
     }
+    // **実行時の上限を置く。** 住所パターンのように量指定が入れ子になった正規表現は、
+    // 細工した入力で照合が爆発しうる（いわゆる ReDoS）。PCRE2 の既定は 1000 万回で、
+    // ローカルツールとはいえ体感で止まる。SECURITY.md が「細工した入力文書から到達可能な
+    // メモリ安全性の問題」を対象と宣言している以上、上限が無いのは筋が通らない。
+    // 上限に当たると PCRE2_ERROR_MATCHLIMIT/DEPTHLIMIT が返り、下の rc<0 で例外になる
+    // ——**0 件に化けない**（fail-open にしない）のが要点。
+    mctx_ = pcre2_match_context_create(nullptr);
+    if (mctx_) {
+      pcre2_set_match_limit(mctx_, 1000000);       // 既定 10,000,000 の 1/10
+      pcre2_set_depth_limit(mctx_, 1000);          // 再帰の深さ（スタック枯渇よけ）
+    }
   }
   ~Regex() {
+    if (mctx_) pcre2_match_context_free(mctx_);
     if (code_) pcre2_code_free(code_);
   }
   Regex(const Regex&) = delete;
@@ -59,7 +71,7 @@ class Regex {
     PCRE2_SIZE start = 0;
     while (start <= subject.size()) {
       const int rc = pcre2_match(code_, reinterpret_cast<PCRE2_SPTR>(subject.data()),
-                                 subject.size(), start, 0, md, nullptr);
+                                 subject.size(), start, 0, md, mctx_);
       if (rc == PCRE2_ERROR_NOMATCH) break;
       if (rc < 0) {
         PCRE2_UCHAR buf[256];
@@ -88,6 +100,7 @@ class Regex {
  private:
   std::string pattern_;
   pcre2_code* code_ = nullptr;
+  pcre2_match_context* mctx_ = nullptr;
 };
 
 }  // namespace re

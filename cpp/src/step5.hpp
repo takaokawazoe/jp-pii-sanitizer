@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "num_patterns.hpp"
 #include "re.hpp"
 #include "tokenizer.hpp"
 
@@ -72,7 +73,7 @@ inline std::string tokenize_table(tokenizer::Tokenizer& tok, const std::vector<s
       col_type[static_cast<int>(i)] = "ORGANIZATION";
   }
   static const re::Regex email{R"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})"};
-  static const re::Regex phone{R"((?<![\d\-])(?:0\d{1,4}-\d{1,4}-\d{3,4}|0\d{9,10})(?![\d\-]))"};
+  static const re::Regex phone{numpat::PHONE};
   for (const auto& row : rows) {
     for (std::size_t i = 0; i < row.size(); ++i) {
       const std::string& cell = row[i];

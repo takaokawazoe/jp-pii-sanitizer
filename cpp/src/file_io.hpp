@@ -9,6 +9,11 @@
 #pragma once
 
 #include <cstdio>
+#ifndef _WIN32
+#  include <fcntl.h>
+#  include <sys/stat.h>
+#  include <unistd.h>
+#endif
 #include <fstream>
 #include <ios>
 #include <sstream>
@@ -53,6 +58,24 @@ inline std::ofstream open_write(const std::string& path) {
 #else
   return std::ofstream(path, std::ios::binary);
 #endif
+}
+
+/// **本人以外に読ませないファイル**を作る（対応表など）。POSIX で 0600 にする。
+///
+/// `std::ofstream` は umask 任せなので、既定では 0644＝他ユーザから読める。対応表は
+/// 「パスワードと同じ扱い」と説明している以上、置き場所の権限もそれに合わせる。
+/// Windows は継承 ACL に従う（ホームや %TEMP% の既定で本人のみ）。
+///
+/// **先に作ってから開く。** 既存ファイルがあれば権限を落としてから開く（O_CREAT だけでは
+/// 既存ファイルのモードは変わらない）。
+inline std::ofstream open_write_private(const std::string& path) {
+#ifndef _WIN32
+  // 中身は後で ofstream が書くので、ここでは作成と権限だけ。
+  const int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+  if (fd >= 0) ::close(fd);
+  ::chmod(path.c_str(), 0600);  // 既存ファイルだった場合も落とす
+#endif
+  return open_write(path);
 }
 
 inline std::string read_all(const std::string& path) {

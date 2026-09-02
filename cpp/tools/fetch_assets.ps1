@@ -1,4 +1,4 @@
-# Download the model + dictionary bundle from the GitHub Release into cpp/models/.
+﻿# Download the model + dictionary bundle from the GitHub Release into cpp/models/.
 # These assets (~750 MB) are not stored in the repository; they are attached to
 # a Release. Set $Repo/$Tag (or the env vars) to match the release you publish.
 #
@@ -27,6 +27,20 @@ $zip = Join-Path $env:TEMP 'jppii-models-assets.zip'
 Write-Host "Downloading $url"
 Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
 Write-Host ("  -> {0:N0} MB" -f ((Get-Item $zip).Length / 1MB))
+
+# Verify the hash. Release assets can be replaced after publication, so downloading
+# without checking would make the model bundle a supply-chain hole.
+$sums = Join-Path $PSScriptRoot 'models-assets.sha256'
+$want = (Get-Content $sums | Where-Object { $_ -notmatch '^\s*#' -and $_ -match "^$([regex]::Escape($Tag))\s" } |
+          ForEach-Object { ($_ -split '\s+')[1] } | Select-Object -First 1)
+if (-not $want) { throw "No expected hash for $Tag in $sums" }
+$got = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+if ($got -ne $want) {
+  Remove-Item $zip -ErrorAction SilentlyContinue
+  throw "models-assets.zip hash mismatch: expected $want, actual $got"
+}
+Write-Host "SHA-256 OK: $got"
+
 Expand-Archive -Path $zip -DestinationPath $models -Force
 Remove-Item $zip
 

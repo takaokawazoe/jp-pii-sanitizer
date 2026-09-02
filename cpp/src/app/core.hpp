@@ -404,6 +404,10 @@ class Core {
       b["source"] = fr.source;
       b["kind"] = fr.kind;
       if (!fr.error.empty()) b["error"] = fr.error;
+      // **元文書にトークン形の文字列が入っていたら知らせる。** 逆置換は単純置換なので、
+      // 同じ綴りが元からあると、そこにも実名が差し込まれる。マスクは止めないが黙ってもいない。
+      const auto collide = tokenizer::existing_placeholders(fr.text);
+      if (!collide.empty()) b["placeholder_collisions"] = collide;
       if (!fr.attachments.empty()) b["attachments"] = fr.attachments;  // 中身は未展開
       if (with_text) b["text"] = fr.text;
       b["spans"] = spans_to_json(tokenizer::find_mask_spans(fr.text, conf, sd_.get()));

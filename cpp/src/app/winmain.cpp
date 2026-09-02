@@ -485,12 +485,62 @@ HRESULT on_controller_created(HRESULT result, ICoreWebView2Controller* controlle
   {
     ComPtr<ICoreWebView2Settings> settings;
     if (SUCCEEDED(g_webview->get_Settings(&settings))) {
+      settings->put_AreDevToolsEnabled(FALSE);
+      settings->put_AreDefaultContextMenusEnabled(FALSE);
       ComPtr<ICoreWebView2Settings4> s4;
       if (SUCCEEDED(settings.As(&s4)) && s4) {
         s4->put_IsGeneralAutofillEnabled(FALSE);
         s4->put_IsPasswordAutosaveEnabled(FALSE);
       }
     }
+  }
+
+  // ---- 外へ出る経路を塞ぐ（多層防御）----
+  //
+  // UI は NavigateToString で読み込む 1 枚の HTML だけで、外部リソースを一切参照しない。
+  // だが**それはコードを読めば分かる話で、実行時に強制されてはいなかった**。
+  // index.html の esc() は `&<>` しか潰さず、`<mark ... title="'+cat+'">` のように
+  // 属性値へ非エスケープで差し込んでいる箇所もある（今は cat が自前の値なので安全だが、
+  // 誰かが利用者由来の文字列を属性に入れた瞬間に XSS が成立する）。
+  //
+  // XSS が成立すると、この画面は本文と対応表を持っているので
+  // 「細工した文書 → スクリプト実行 → fetch() で外部送信」が繋がる。さらに extractPaths は
+  // JS から任意パスを受け付けるので、任意ファイル読み取りにもなる。
+  //
+  // **「ネットワーク通信をしない」を実装で担保する。** 遷移そのものを拒否すれば、
+  // XSS が起きても外へ出る先が無い。
+  {
+    EventRegistrationToken t{};
+    g_webview->add_NavigationStarting(
+        Callback<ICoreWebView2NavigationStartingEventHandler>(
+            [](ICoreWebView2*, ICoreWebView2NavigationStartingEventArgs* args) -> HRESULT {
+              // **初回だけは無条件で通す。** NavigateToString の中身は about:blank として
+              // 来るはずだが、WebView2 のバージョンによって表記が変わる可能性がある。
+              // そこで弾いてしまうと UI が真っ白のまま起動しない＝アプリが死ぬ。
+              // 初回はこちらが呼んだ 1 回だけなので、通しても外部には出ない。
+              static bool first = true;
+              if (first) {
+                first = false;
+                return S_OK;
+              }
+              LPWSTR uri = nullptr;
+              bool allow = false;
+              if (SUCCEEDED(args->get_Uri(&uri)) && uri) {
+                allow = (std::wstring(uri).rfind(L"about:", 0) == 0);
+                CoTaskMemFree(uri);
+              }
+              if (!allow) args->put_Cancel(TRUE);
+              return S_OK;
+            }).Get(), &t);
+  }
+  {
+    EventRegistrationToken t{};
+    g_webview->add_NewWindowRequested(
+        Callback<ICoreWebView2NewWindowRequestedEventHandler>(
+            [](ICoreWebView2*, ICoreWebView2NewWindowRequestedEventArgs* args) -> HRESULT {
+              args->put_Handled(TRUE);  // 新しい窓・ポップアップは開かせない
+              return S_OK;
+            }).Get(), &t);
   }
 
   EventRegistrationToken tok{};

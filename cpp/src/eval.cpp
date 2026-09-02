@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include "num_patterns.hpp"
 #include "eml.hpp"
 #include "extractors.hpp"
 #include "file_io.hpp"
@@ -173,8 +174,8 @@ int main(int argc, char** argv) {
               data_dir + "/labels.json", lmap);
 
   static const re::Regex email{R"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})"};
-  static const re::Regex phone{R"((?<![\d\-])(?:0\d{1,4}-\d{1,4}-\d{3,4}|0\d{9,10})(?![\d\-]))"};
-  static const re::Regex postal{R"((?<![\d\-])\d{3}-\d{4}(?![\d\-]))"};
+  static const re::Regex phone{numpat::PHONE};
+  static const re::Regex postal{numpat::POSTAL};
 
   int in_total = 0, in_masked = 0, out_total = 0, out_masked = 0;
   int neg_total = 0, neg_hit = 0, rt_total = 0, rt_ok = 0, rt_ws_only = 0;

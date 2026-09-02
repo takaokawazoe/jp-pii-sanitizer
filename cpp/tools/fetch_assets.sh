@@ -22,10 +22,31 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 models="$(cd "$here/.." && pwd)/models"   # cpp/models
 mkdir -p "$models"
 url="https://github.com/$REPO/releases/download/$TAG/models-assets.zip"
-zip="$(mktemp -u).zip"
+
+# 一時ファイルは **作ってから** 使う。`mktemp -u` は名前を予約しないので、生成から
+# 書き込みまでの間に他のプロセスに割り込まれる余地がある。
+tmpdir="$(mktemp -d)"
+trap 'rm -rf "$tmpdir"' EXIT
+zip="$tmpdir/models-assets.zip"
 
 echo "Downloading $url"
 curl -fSL -o "$zip" "$url"
+
+# **ハッシュを照合する。** Release のアセットは後から差し替えられるので、ダウンロードした
+# ものが公開時のものと同じであることを確かめないと、モデル一式が供給網の穴になる。
+want="$(awk -v t="$TAG" '$1==t {print $2}' "$here/models-assets.sha256")"
+if [[ -z "$want" ]]; then
+  echo "ERROR: $TAG の期待ハッシュが cpp/tools/models-assets.sha256 に無い" >&2
+  exit 1
+fi
+got="$(sha256sum "$zip" | cut -d' ' -f1)"
+if [[ "$got" != "$want" ]]; then
+  echo "ERROR: models-assets.zip のハッシュが違う" >&2
+  echo "  expected: $want" >&2
+  echo "  actual  : $got" >&2
+  exit 1
+fi
+echo "SHA-256 OK: $got"
+
 unzip -o "$zip" -d "$models"
-rm -f "$zip"
 echo "Extracted into $models"

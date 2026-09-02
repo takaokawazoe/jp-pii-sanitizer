@@ -442,6 +442,20 @@ std::vector<step5::FileResult> ingest_files(const std::vector<std::string>& path
       // 一部だけ読めなかった場合（.eml でヘッダは取れたが本文の文字コードが不明、等）。
       // 黙っていると「PII が無かった」と区別が付かない。
       std::fprintf(stderr, "warning: %s — %s\n", b.c_str(), fr.error.c_str());
+    // **元文書にトークン形の文字列が入っていたら知らせる。** 復元（reverse）は単純置換なので、
+    // 同じ綴りが元からあると、そこにも実名が差し込まれる。マスクは止めないが黙ってもいない。
+    if (!fr.text.empty()) {
+      const auto collide = tokenizer::existing_placeholders(fr.text);
+      if (!collide.empty()) {
+        std::fprintf(stderr,
+                     "warning: %s: 本文にトークンと同じ形の文字列があります（復元時に実名が"
+                     "差し込まれます）: ",
+                     b.c_str());
+        for (std::size_t i = 0; i < collide.size() && i < 5; ++i)
+          std::fprintf(stderr, "%s%s", i ? " / " : "", collide[i].c_str());
+        std::fprintf(stderr, "\n");
+      }
+    }
     // 添付の**中身は展開しない**（設計判断・docs/cli.md）。黙っていると「添付も処理された」と
     // 誤解されるので必ず知らせる。添付を対象にしたい利用者は自分で保存して個別に渡す。
     if (!fr.attachments.empty()) {
@@ -778,7 +792,9 @@ int cmd_mask(const Args& a) {
       } else {
         jsonl = mapping_io::to_jsonl(tok.mapping_ordered());
       }
-      std::ofstream mf = fileio::open_write(a.mapping);  // 日本語パス対応
+      // **対応表は 0600 で作る**（POSIX）。パスワードと同じ扱いだと説明している以上、
+      // 既定の 0644 で他ユーザから読めるのは筋が通らない。日本語パス対応も兼ねる。
+      std::ofstream mf = fileio::open_write_private(a.mapping);
       if (!mf) die("対応表を開けません: " + a.mapping);
       mf.write(jsonl.data(), static_cast<std::streamsize>(jsonl.size()));
       if (a.encrypt_mapping)

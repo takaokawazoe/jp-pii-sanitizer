@@ -259,3 +259,13 @@
 {"file":"single_kana_noise.txt","type":"NEGATIVE","text":"csv"}
 {"file":"long_line_chunk.txt","type":"ORGANIZATION","text":"株式会社みらいテクノロジーズ"}
 {"file":"long_line_chunk.txt","type":"PERSON","text":"田中健一"}
+{"file":"number_formats.txt","type":"PHONE","text":"03-1234-5678"}
+{"file":"number_formats.txt","type":"PHONE","text":"０３－１２３４－５６７８"}
+{"file":"number_formats.txt","type":"PHONE","text":"03(1234)5678"}
+{"file":"number_formats.txt","type":"PHONE","text":"03 1234 5678"}
+{"file":"number_formats.txt","type":"PHONE","text":"+81-3-1234-5678"}
+{"file":"number_formats.txt","type":"PHONE","text":"0312345678"}
+{"file":"number_formats.txt","type":"POSTAL","text":"150-0001"}
+{"file":"number_formats.txt","type":"POSTAL","text":"１５０－０００１"}
+{"file":"number_formats.txt","type":"NEGATIVE","text":"A-1234-5678"}
+{"file":"number_formats.txt","type":"NEGATIVE","text":"9876-5432"}

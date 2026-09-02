@@ -20,18 +20,31 @@
 
 namespace ooxml {
 
-/// ZIP 内の1エントリを文字列で取り出す。無ければ空。
+/// 1 エントリの展開上限。**zip bomb 対策。**
+///
+/// OOXML の中身は XML なので、実文書で数十 MB を超えることはまずない。
+/// 圧縮率の高い細工ファイルは 1 エントリで数 GB に展開できるので、上限を置いて
+/// メモリを食い潰される経路を塞ぐ。SECURITY.md で「細工した入力文書から到達可能な
+/// メモリ安全性の問題」を対象と宣言している以上、無制限のままでは筋が通らない。
+inline constexpr std::size_t MAX_ENTRY_BYTES = 256u * 1024u * 1024u;  // 256 MiB
+
+/// ZIP 内の1エントリを文字列で取り出す。無ければ空。上限超えは読まない（空を返す）。
 inline std::string zip_read(const std::string& path, const std::string& entry) {
   mz_zip_archive zip{};
   if (!mz_zip_reader_init_file(&zip, path.c_str(), 0)) return {};
   std::string out;
   const int idx = mz_zip_reader_locate_file(&zip, entry.c_str(), nullptr, 0);
   if (idx >= 0) {
-    std::size_t sz = 0;
-    void* p = mz_zip_reader_extract_to_heap(&zip, idx, &sz, 0);
-    if (p) {
-      out.assign(static_cast<char*>(p), sz);
-      mz_free(p);
+    // **展開する前に申告サイズを見る。** 展開してから測っても遅い。
+    mz_zip_archive_file_stat st{};
+    if (mz_zip_reader_file_stat(&zip, static_cast<mz_uint>(idx), &st) &&
+        st.m_uncomp_size <= MAX_ENTRY_BYTES) {
+      std::size_t sz = 0;
+      void* p = mz_zip_reader_extract_to_heap(&zip, idx, &sz, 0);
+      if (p) {
+        out.assign(static_cast<char*>(p), sz);
+        mz_free(p);
+      }
     }
   }
   mz_zip_reader_end(&zip);

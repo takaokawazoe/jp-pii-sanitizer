@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "num_patterns.hpp"
 #include "furigana.hpp"
 #include "re.hpp"
 #include "sudachi_shim.hpp"
@@ -308,8 +309,8 @@ class Tokenizer {
   std::vector<std::pair<std::string, std::string>> order_;  // 挿入順
   // パターンは Python 側と同一（phase2_regex で 240/240 実測）。
   re::Regex email_{R"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})"};
-  re::Regex phone_{R"((?<![\d\-])(?:0\d{1,4}-\d{1,4}-\d{3,4}|0\d{9,10})(?![\d\-]))"};
-  re::Regex postal_{R"((?<![\d\-])\d{3}-\d{4}(?![\d\-]))"};
+  re::Regex phone_{numpat::PHONE};
+  re::Regex postal_{numpat::POSTAL};
 };
 
 /// トークンの形（{{PREFIX_n}}）。逆置換後の残骸検査に使う。
@@ -320,14 +321,31 @@ inline std::vector<std::string> find_unreplaced_tokens(const std::string& text) 
   return out;
 }
 
+/// 抽出直後のテキストに、**このツールが使うトークン形の文字列が元から入っていないか**。
+///
+/// 入っていると復元が壊れる: `reverse` は `{{PERSON_1}}` → 実名の単純置換なので、元文書に
+/// 同じ綴りがあれば**そこにも実名を差し込む**。テンプレート、このツール自身のマニュアル、
+/// 一度サニタイズした結果を再度読ませた場合などに起きる。
+///
+/// 見つかった綴りを返す（空なら問題なし）。マスクを止めるほどではないので、呼び出し側で
+/// 警告として見せる——「静かに壊れる」のだけは避ける。
+inline std::vector<std::string> existing_placeholders(const std::string& text) {
+  static const re::Regex ph{
+      R"(\{\{[A-Z]+_\d+\}\}|\[(?:人名|会社名|住所|メール|電話|郵便番号)\d+\])"};
+  std::vector<std::string> found;
+  for (const auto& m : ph.finditer(text))
+    if (std::find(found.begin(), found.end(), m.text) == found.end()) found.push_back(m.text);
+  return found;
+}
+
 /// AIに渡す直前の検査（step6.safety_gate の移植）。
 ///
 /// 対応表の元値が本文に直接残っていないか＋メール/電話/郵便の regex 残りを返す。空なら安全。
 inline std::vector<std::string> safety_gate(const std::string& tokenized,
                                             const std::vector<std::string>& raw_values) {
   static const re::Regex email{R"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})"};
-  static const re::Regex phone{R"((?<![\d\-])(?:0\d{1,4}-\d{1,4}-\d{3,4}|0\d{9,10})(?![\d\-]))"};
-  static const re::Regex postal{R"((?<![\d\-])\d{3}-\d{4}(?![\d\-]))"};
+  static const re::Regex phone{numpat::PHONE};
+  static const re::Regex postal{numpat::POSTAL};
   // 挿入済みトークンの**内側**は「残存」ではない。短いラテン語の確定語（"ON" 等）は
   // {{PERSON_1}} の中に文字列として現れるため、素の find では偽陽性になる。
   static const re::Regex ph{
@@ -405,8 +423,8 @@ inline std::vector<MaskSpan> find_mask_spans(const std::string& text,
 
   // 番号類を先に（tokenize と同じ優先順位）
   static const re::Regex email{R"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})"};
-  static const re::Regex phone{R"((?<![\d\-])(?:0\d{1,4}-\d{1,4}-\d{3,4}|0\d{9,10})(?![\d\-]))"};
-  static const re::Regex postal{R"((?<![\d\-])\d{3}-\d{4}(?![\d\-]))"};
+  static const re::Regex phone{numpat::PHONE};
+  static const re::Regex postal{numpat::POSTAL};
   for (const auto& [rx, cat] :
        {std::pair<const re::Regex*, const char*>{&email, "email"},
         {&phone, "phone"},

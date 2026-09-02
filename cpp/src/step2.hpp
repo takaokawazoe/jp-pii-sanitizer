@@ -15,6 +15,7 @@
 
 #include "furigana.hpp"
 #include "hf_ner.hpp"
+#include "num_patterns.hpp"
 #include "re.hpp"
 #include "sudachi_shim.hpp"
 #include "utf8.hpp"
@@ -57,8 +58,12 @@ struct Patterns {
 
   Patterns(const std::map<std::string, std::string>& p)
       : company_mae(p.at("company_mae")), company_ato(p.at("company_ato")),
-        address(p.at("address")), email(p.at("email")), phone(p.at("phone")),
-        postal(p.at("postal")), pref(p.at("pref")), pii_split(p.at("pii_split")) {}
+        address(p.at("address")), email(p.at("email")),
+        // **番号系は patterns.json ではなく num_patterns.hpp を正とする。**
+        // あのファイルはモデル束に同梱されて配布されるので、直しても CI では古い版に
+        // 戻ってしまう（fetch_assets.sh の unzip -o）。
+        phone(numpat::PHONE), postal(numpat::POSTAL),
+        pref(p.at("pref")), pii_split(p.at("pii_split")) {}
 };
 
 inline bool has_letter(const Patterns& P, const std::string& s) {

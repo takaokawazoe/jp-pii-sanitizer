@@ -120,6 +120,10 @@ the GUI. It exposes three commands:
 
 ### Known limitations
 
+- **`.docx` reads the body only** (`word/document.xml`). Headers, footers, footnotes
+  and comments are not extracted — so they are never sent to the AI, but they are also
+  never reviewed. Do not read a clean result as "the whole file was checked".
+
 - `.eml` bodies are decoded from UTF-8, ISO-2022-JP, Shift_JIS and EUC-JP only.
   Any other charset is reported as an error rather than silently mangled — an
   unreadable body must not look like "no PII found".
@@ -223,6 +227,10 @@ cross-platform claim is checked on every push, not just asserted.
   exe 隣の `models/` をフラグ無しで見つける。
 
 ### 既知の未対応
+
+- **`.docx` は本文だけ**（`word/document.xml`）。ヘッダー・フッター・脚注・コメントは
+  抽出しない。**AI に送られることも無い代わりに、確認もされない。** 結果が綺麗だった
+  ことを「ファイル全体を見た」と読み替えないこと。
 
 - `.eml` の本文は UTF-8 / ISO-2022-JP / Shift_JIS / EUC-JP のみ復号する。それ以外の
   charset は黙って化けさせず**エラーとして報告する**——読めなかった本文が
