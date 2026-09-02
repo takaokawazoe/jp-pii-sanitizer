@@ -386,6 +386,12 @@ inline std::string hl_category(const std::string& entity_type) {
 struct MaskSpan {
   std::size_t begin, end;  // 文字（コードポイント）オフセット。Python の find_mask_spans と同じ
   std::string category;    // person/company/address/email/phone/postal
+  /// **どの候補由来か**（画面で候補↔ハイライトを結ぶために持つ）。番号regex 由来は空。
+  ///
+  /// フリガナの名寄せで当たったスパン（`ヤマダタロウ`）にも、**元の漢字表記**（`山田太郎`）を
+  /// 入れる。候補一覧に出ているのは漢字の方なので、読み由来だけ紐づかないと件数もジャンプも
+  /// 合わなくなる。
+  std::string term;
 };
 
 /// マスク対象箇所を (開始, 終了, カテゴリ) で返す（find_mask_spans の移植・重なりなし）。
@@ -398,26 +404,32 @@ inline std::vector<MaskSpan> find_mask_spans(const std::string& text,
                                              sudachi::Analyzer* sd = nullptr,
                                              bool link_furigana = true) {
   std::vector<ConfirmedTerm> confirmed = confirmed_in;
+  // 読み → 元の表記。ConfirmedTerm 自体は JSON からも作られるので、フィールドを増やさず
+  // ここだけの対応表で持つ。
+  std::map<std::string, std::string> canonical_of;
   if (link_furigana && sd) {
     const auto base = confirmed;
     for (const auto& t : base)
       if (t.entity_type == "PERSON")
-        for (const auto& r : linkable_readings(*sd, t.text))
+        for (const auto& r : linkable_readings(*sd, t.text)) {
           confirmed.push_back({r, "PERSON"});
+          canonical_of.emplace(r, t.text);
+        }
   }
 
   // (begin, end) はバイト位置で保持。
   std::vector<std::pair<std::size_t, std::size_t>> taken;
-  std::vector<std::tuple<std::size_t, std::size_t, std::string>> spans;  // byte
+  // (begin, end, category, term)
+  std::vector<std::tuple<std::size_t, std::size_t, std::string, std::string>> spans;  // byte
   auto overlaps = [&](std::size_t s, std::size_t e) {
     for (const auto& [ts, te] : taken)
       if (!(e <= ts || s >= te)) return true;
     return false;
   };
-  auto add = [&](std::size_t s, std::size_t e, const std::string& cat) {
+  auto add = [&](std::size_t s, std::size_t e, const std::string& cat, const std::string& term) {
     if (!overlaps(s, e)) {
       taken.emplace_back(s, e);
-      spans.emplace_back(s, e, cat);
+      spans.emplace_back(s, e, cat, term);
     }
   };
 
@@ -429,7 +441,7 @@ inline std::vector<MaskSpan> find_mask_spans(const std::string& text,
        {std::pair<const re::Regex*, const char*>{&email, "email"},
         {&phone, "phone"},
         {&postal, "postal"}})
-    for (const auto& m : rx->finditer(text)) add(m.begin, m.end, cat);
+    for (const auto& m : rx->finditer(text)) add(m.begin, m.end, cat, "");  // 番号系は候補ではない
 
   // 確定リスト（長い順・**文字長**で安定ソート）
   std::stable_sort(confirmed.begin(), confirmed.end(),
@@ -439,14 +451,17 @@ inline std::vector<MaskSpan> find_mask_spans(const std::string& text,
   for (const auto& term : confirmed) {
     if (term.text.empty()) continue;
     const std::string cat = hl_category(term.entity_type);
+    // 読み由来なら元の漢字表記を持たせる（候補一覧に出ているのはそちら）。
+    const auto ct = canonical_of.find(term.text);
+    const std::string shown = (ct != canonical_of.end()) ? ct->second : term.text;
     const std::string core = strip_spaces(term.text);
     if (utf8::char_len(core) >= WS_MATCH_MIN_CHARS) {
       re::Regex pat(ws_insensitive_pattern(term.text));
-      for (const auto& m : pat.finditer(text)) add(m.begin, m.end, cat);
+      for (const auto& m : pat.finditer(text)) add(m.begin, m.end, cat, shown);
     } else {
       std::size_t start = 0, i;
       while ((i = text.find(term.text, start)) != std::string::npos) {
-        add(i, i + term.text.size(), cat);
+        add(i, i + term.text.size(), cat, shown);
         start = i + term.text.size();
       }
     }
@@ -459,7 +474,7 @@ inline std::vector<MaskSpan> find_mask_spans(const std::string& text,
     return static_cast<std::size_t>(std::lower_bound(off.begin(), off.end(), b) - off.begin());
   };
   std::vector<MaskSpan> out;
-  for (const auto& [b, e, cat] : spans) out.push_back({b2c(b), b2c(e), cat});
+  for (const auto& [b, e, cat, tm] : spans) out.push_back({b2c(b), b2c(e), cat, tm});
   return out;
 }
 

@@ -57,11 +57,12 @@ inline std::string basename_of(const std::string& path) {
   const auto slash = path.find_last_of("/\\");
   return slash == std::string::npos ? path : path.substr(slash + 1);
 }
-
-// find_mask_spans の結果を [[begin,end,category], ...] にする。
+// find_mask_spans の結果を [[begin,end,category,term], ...] にする。
+// term は由来の候補表記（番号系は空）。画面で候補↔ハイライトを結ぶのに使う——
+// 候補の件数表示と、候補をクリックしたときのジャンプ先。
 inline json spans_to_json(const std::vector<tokenizer::MaskSpan>& spans) {
   json arr = json::array();
-  for (const auto& s : spans) arr.push_back({s.begin, s.end, s.category});
+  for (const auto& s : spans) arr.push_back({s.begin, s.end, s.category, s.term});
   return arr;
 }
 
@@ -110,7 +111,7 @@ class Core {
   }
 
   // ① アップロード→抽出 ＋ ② 候補検知。paths は絶対パス。
-  // 返り値: {ok, candidates:[{text,entity_type,count}], blocks:[{source,kind,text,spans}]}
+  // 返り値: {ok, candidates:[{text,entity_type,count}], blocks:[{source,kind,text,spans:[[begin,end,category,term],...]}]}
   json extract(const std::vector<std::string>& paths) {
     if (!ensure_init()) return err_json();
     results_.clear();

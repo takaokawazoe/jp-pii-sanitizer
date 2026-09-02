@@ -30,7 +30,13 @@
  button{padding:7px 14px;font-size:13px;border:1px solid #0a7d64;background:#0a7d64;color:#fff;border-radius:5px;cursor:pointer}
  button.sec{background:#fff;color:#0a7d64}
  .cand-row{display:flex;gap:6px;align-items:center;font-size:13px;padding:2px 0;border-bottom:1px solid #f0f0f0}
- .cand-row .t{flex:1} .cand-row .ty{color:#888;font-size:11px} .cand-row .rm{cursor:pointer;color:#c00;font-size:12px}
+ .cand-row .t{flex:1;cursor:pointer} .cand-row .t:hover{text-decoration:underline}
+ .cand-row .ty{color:#888;font-size:11px} .cand-row .rm{cursor:pointer;color:#c00;font-size:12px}
+ /* 件数バッジ。プレビュー未更新の間は薄くする（数字が古いことを黙って見せない） */
+ .cand-row .n{color:#555;font-size:11px;min-width:2.5em;text-align:right;font-variant-numeric:tabular-nums}
+ .cand-row .n.stale{opacity:.35}
+ /* いま飛んでいる箇所。同じ候補が複数見えているとき、どれに来たのか分かるように */
+ .hlbox mark.here{outline:2px solid #0a7d64;outline-offset:1px}
  .cand-row.manual{background:#fff7e6}
  .madd{display:flex;gap:4px;margin:6px 0} .madd input{flex:1;min-width:0;font-size:12px} .madd select{font-size:12px}
  .hlbox{border:1px solid #ddd;border-radius:6px;padding:10px;margin:8px 0;white-space:pre-wrap;font-size:13px}
@@ -103,6 +109,10 @@
 </section>
 <script>
  let seq=1, candidates=[], blocks=[], manual=[], lastSanitized='', mappingJsonl='', mappingCount=0, docBase='output', openedPaths=[];
+ // 候補クリックの巡回状態。jumpTerm を変えたら jumpIdx は 0 に戻す（候補を変えたら 1 件目から）。
+ let jumpTerm=null, jumpIdx=0;
+ // 選択を変えてからプレビューを更新するまでの間、件数は古い。薄く出して黙らない。
+ let countsStale=false;
  // 対応表の書式は JSONL。**JS では組み立てない・解釈しない。** ネイティブ側の
  // mapping_io が唯一のシリアライザで、CLI (jp-pii-sanitizer-cli) と同じものを読み書きする。
  // 以前は JS が CSV を組み立てていたため、GUI が保存した対応表を CLI の restore が
@@ -142,10 +152,12 @@
    const catClass=c=>['person','company','address'].includes(c)?'cand':'auto';
    let out='', pos=0;
    const sorted=[...spans].sort((a,b)=>a[0]-b[0]);
-   for(const [b,e,cat] of sorted){
+   for(const [b,e,cat,term] of sorted){
      if(b<pos) continue;
      out+=esc(cp.slice(pos,b).join(''));
-     out+='<mark class="'+catClass(cat)+'" title="'+esc(cat)+'">'+esc(cp.slice(b,e).join(''))+'</mark>';
+     // data-term は由来の候補（番号系は空）。候補一覧からこの箇所へ飛ぶために使う。
+     out+='<mark class="'+catClass(cat)+'" title="'+esc(cat)+'" data-term="'+esc(term||'')+'">'
+         +esc(cp.slice(b,e).join(''))+'</mark>';
      pos=e;
    }
    out+=esc(cp.slice(pos).join(''));
@@ -161,12 +173,41 @@
    return conf;
  }
  const JP={PERSON:'人名',ORGANIZATION:'会社',LOCATION:'住所'};
+
+ // プレビュー内の <mark> を上から順に集める。DOM の順＝ブロックの表示順なので、
+ // 複数ファイルでもこれだけで「表示順に並んだ出現箇所」になる。
+ // **セレクタは組み立てない。** 候補は人名なので、引用符や記号でセレクタが壊れる。
+ function marksFor(term){
+   return [...document.querySelectorAll('#preview .hlbox mark')].filter(m=>m.dataset.term===term);
+ }
+ // 件数＝いま何箇所マスクされるか。候補の count（NER の検知回数）とは別物で、
+ // ハイライト・ジャンプ先と必ず一致する方を出す。
+ function spanCount(term){
+   let n=0;
+   blocks.forEach(b=>(b.spans||[]).forEach(sp=>{ if(sp[3]===term) n++; }));
+   return n;
+ }
+ // 候補をクリック → 1 件目へ。続けて押すと次へ。末尾まで行ったら先頭へ戻る。
+ function jumpTo(term){
+   const marks=marksFor(term);
+   const badge=[...document.querySelectorAll('.cand-row')].find(r=>r.dataset.text===term);
+   if(!marks.length){ if(badge) badge.querySelector('.n').textContent='0'; return; }
+   if(jumpTerm!==term){ jumpTerm=term; jumpIdx=0; } else { jumpIdx=(jumpIdx+1)%marks.length; }
+   document.querySelectorAll('#preview mark.here').forEach(m=>m.classList.remove('here'));
+   const cur=marks[jumpIdx];
+   cur.classList.add('here');
+   cur.scrollIntoView({block:'center', behavior:'smooth'});
+   if(badge) badge.querySelector('.n').textContent=(jumpIdx+1)+'/'+marks.length;
+ }
  function makeRow(text, type, isManual){
    const row=document.createElement('div');
    row.className='cand-row'+(isManual?' manual':''); row.dataset.text=text; row.dataset.type=type;
    const ty=JP[type]||type;
    row.innerHTML='<input type="checkbox" checked><span class="t">'+esc(text)+
+     '</span><span class="n'+(countsStale?' stale':'')+'">'+spanCount(text)+
      '</span><span class="ty">'+ty+'</span>';
+   // クリックはテキスト部分だけ。チェックボックスと ✕ に付けると、外そうとして飛んでしまう。
+   row.querySelector('.t').onclick=()=>jumpTo(text);
    if(isManual){
      const x=document.createElement('span'); x.className='rm'; x.textContent='✕'; x.title='削除';
      x.onclick=()=>{ manual=manual.filter(m=>!(m.text===text&&m.type===type)); renderCands(); };
@@ -251,7 +292,9 @@
      // **id で突き合わせる。** basename をキーにすると別フォルダの同名ファイルで衝突する。
      const map={}; (m.blocks||[]).forEach(b=>{ map[b.id]=b.spans; });
      blocks.forEach(b=>{ if(map[b.id]) b.spans=map[b.id]; });
-     renderPreview();
+     // オフセットが変わったので巡回位置は捨てる。件数も新しくなったので薄字を解除。
+     jumpTerm=null; jumpIdx=0; countsStale=false;
+     renderPreview(); renderCands();
    } else if(m.type==='save'){
      if($('saveMsg')) $('saveMsg').textContent = m.ok ? '保存しました。' : '保存されませんでした（キャンセルまたは失敗）。';
    } else if(m.type==='reset'){
@@ -337,6 +380,13 @@
  $('madd').onclick=addManual;
  $('maddText').addEventListener('keydown', e=>{ if(e.key==='Enter') addManual(); });
  $('prev').onclick=()=>send({cmd:'preview', confirmed:currentConfirmed()});
+ // 選択が変わるとスパンが変わる（長い候補が先に取るため）。プレビューを更新するまで件数は古い。
+ $('cands').addEventListener('change', e=>{
+   if(e.target && e.target.type==='checkbox'){
+     countsStale=true;
+     document.querySelectorAll('.cand-row .n').forEach(n=>n.classList.add('stale'));
+   }
+ });
  $('san').onclick=()=>{ const rev=document.querySelector('input[name=rev]:checked').value==='1';
    send({cmd:'sanitize', confirmed:currentConfirmed(), reversible:rev}); };
  // 対応表は解釈せずそのままネイティブへ渡す（読み手は CLI と同じ mapping_io）。

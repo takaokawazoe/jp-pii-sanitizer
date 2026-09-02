@@ -131,9 +131,43 @@ int main(int argc, char** argv) {
         }
   }
 
+
+  // ---- スパンが「どの候補由来か」を持っているか（回帰試験・オラクル外）----
+  //
+  // 画面の候補一覧は、この term を使って件数を数え、クリック時のジャンプ先を引く。
+  // **フリガナの名寄せが勘所**: 読み（ヤマダタロウ）で当たったスパンにも、候補一覧に
+  // 出ている元の漢字表記（山田太郎）が入っていないと、件数もジャンプも合わない。
+  int term_ng = 0;
+  {
+    const std::string t =
+        "担当は山田太郎です。ヤマダタロウとも書きます。連絡先は 03-1234-5678。";
+    const std::vector<tokenizer::ConfirmedTerm> conf = {{"山田太郎", "PERSON"}};
+    const auto sp = tokenizer::find_mask_spans(t, conf, &sd);
+    int kanji = 0, kana = 0, phone = 0;
+    for (const auto& s : sp) {
+      if (s.category == "phone") {
+        ++phone;
+        if (!s.term.empty()) {
+          std::printf("  NG: 番号系のスパンに term が入っている: [%s]\n", s.term.c_str());
+          ++term_ng;
+        }
+      } else if (s.term == "山田太郎") {
+        // 漢字でもカナでも、term は候補一覧の表記（漢字）であること
+        const std::string got = utf8::slice(t, utf8::char_offsets(t), s.begin, s.end);
+        (got == "山田太郎") ? ++kanji : ++kana;
+      } else {
+        std::printf("  NG: 想定外の term: [%s]\n", s.term.c_str());
+        ++term_ng;
+      }
+    }
+    if (kanji != 1) { std::printf("  NG: 漢字表記のスパンが %d 件\n", kanji); ++term_ng; }
+    if (kana != 1) { std::printf("  NG: 読み由来のスパンが %d 件（漢字表記が入っていない）\n", kana); ++term_ng; }
+    if (phone != 1) { std::printf("  NG: 電話のスパンが %d 件\n", phone); ++term_ng; }
+    if (term_ng == 0) std::printf("  スパンの由来（term・フリガナ含む）: OK\n");
+  }
   std::printf("\n  find_mask_spans %zu/%zu ・ safety_gate %zu/%zu ・ tokenize_table %s\n", span_ok,
               span_ok + span_ng, gate_ok, gate_ok + gate_ng, table_ok ? "OK" : "NG");
-  const bool pass = !span_ng && !gate_ng && table_ok && span_ok;
+  const bool pass = !span_ng && !gate_ng && table_ok && span_ok && !term_ng;
   std::printf("\n  === Phase 5 コア（安全ゲート・ハイライト・束ね）: %s ===\n",
               pass ? "PASS (Python と一致)" : "FAIL");
   return pass ? 0 : 1;
