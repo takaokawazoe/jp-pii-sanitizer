@@ -5,8 +5,8 @@
 #pragma once
 
 #include <algorithm>
-#include <cmath>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <fstream>
 #include <map>
@@ -81,7 +81,26 @@ class Ner {
         out.push_back(s);
       }
     }
-    return out;
+    // **重なり分の重複を落とす。** 長い行はチャンクを 50 字重ねて切るので（utf8.hpp）、
+    // 重なりに入った固有名詞は 2 回見つかる。同一スパンは 1 つにし、他のスパンに完全に
+    // 含まれるものは捨てる（境界で切れた断片が、丸ごと入った方に吸収される）。
+    //
+    // **並べ替えない。** 期待値は位置で突き合わせるので、順序を変えると中身が同じでも
+    // 差分だらけになり読めなくなる（実測で 50 件以上の見かけの差が出た）。
+    std::vector<Span> uniq;
+    for (std::size_t i = 0; i < out.size(); ++i) {
+      bool drop = false;
+      for (std::size_t j = 0; j < out.size() && !drop; ++j) {
+        if (i == j || out[j].type != out[i].type) continue;
+        const bool same = out[j].begin == out[i].begin && out[j].end == out[i].end;
+        if (same)
+          drop = (j < i);  // 同一スパンは先に出た方を残す
+        else if (out[j].begin <= out[i].begin && out[i].end <= out[j].end)
+          drop = true;  // 真に含まれる（＝境界で切れた断片）
+      }
+      if (!drop) uniq.push_back(out[i]);
+    }
+    return uniq;
   }
 
  private:

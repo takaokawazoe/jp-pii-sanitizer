@@ -257,3 +257,5 @@
 {"file":"single_kana_noise.txt","type":"NEGATIVE","text":"msg"}
 {"file":"single_kana_noise.txt","type":"NEGATIVE","text":"xlsx"}
 {"file":"single_kana_noise.txt","type":"NEGATIVE","text":"csv"}
+{"file":"long_line_chunk.txt","type":"ORGANIZATION","text":"株式会社みらいテクノロジーズ"}
+{"file":"long_line_chunk.txt","type":"PERSON","text":"田中健一"}

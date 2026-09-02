@@ -182,8 +182,23 @@ inline std::vector<std::pair<std::size_t, std::string>> chunk_by_chars(const std
         buf_len = 0;
       }
       const auto loff = char_offsets(line);
-      for (std::size_t i = 0; i < ln; i += max_chars)
-        chunks.emplace_back(base + i, slice(line, loff, i, std::min(i + max_chars, ln)));
+      // **ハード分割は窓を重ねる。** 行の途中で切ると固有名詞が真っ二つになり、
+      // 前後のチャンクで**独立に**判定される。実測（利用者からの報告と再現）:
+      //   ...ああ|Tanaka, Mamoru...   ← 250 字目が Ta と naka の間
+      //   → 「Tanaka」が丸ごと消える（候補は Mamoru だけ）
+      // 種別が別々になる・間の 1 文字がどこにも入らない、といった壊れ方もする。
+      //
+      // 英語なら空白まで戻って切る手もあるが、**日本語には空白が無い**（山田太郎 が
+      // 境界に来たら防げない）。重ねるのが唯一確実な方法。
+      // 重なり幅より短い固有名詞は、必ずどこかのチャンクに丸ごと収まる。
+      // 重複して見つかったスパンは hf_ner::spans 側で落とす。
+      const std::size_t overlap = max_chars / 5;  // 250 字なら 50 字
+      const std::size_t stride = max_chars > overlap ? max_chars - overlap : max_chars;
+      for (std::size_t i = 0; i < ln; i += stride) {
+        const std::size_t e = std::min(i + max_chars, ln);
+        chunks.emplace_back(base + i, slice(line, loff, i, e));
+        if (e == ln) break;  // 末尾に到達。これ以上は前のチャンクに含まれるだけ
+      }
       base += ln;
       continue;
     }
