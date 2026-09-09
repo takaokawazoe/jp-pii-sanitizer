@@ -186,9 +186,46 @@ int main(int argc, char** argv) {
     }
     if (s8_ng == 0) std::printf("  非 Unicode(cp932) の文字列: OK\n");
   }
+
+  // ---- Exchange の内部識別子を本文に載せないか（回帰試験）----
+  //
+  // Outlook の受信者・差出人には SMTP アドレスの代わりに X.500 の識別名が入ることがある。
+  // `X-` ヘッダと同じ配管だが `受信者:` という正当なフィールドの中なので、ヘッダを
+  // 落としただけでは残る。実測ではここから `ExchangeLabs` と
+  // `Exchange Administrative Group` が社名候補として出ていた（利用者からの報告）。
+  //
+  // **表示名は残し、識別子だけ落とす**のが要点。名前まで消したら本末転倒。
+  int dn_ng = 0;
+  {
+    const std::string dn =
+        "/o=ExchangeLabs/ou=Exchange Administrative Group "
+        "(FYDIBOHF23SPDLT)/cn=Recipients/cn=394a6056126145eda061a81875710953-kawazoe";
+    if (!msg::is_exchange_dn(dn)) {
+      std::printf("  NG: 識別名を識別名と判定できない\n");
+      ++dn_ng;
+    }
+    // SMTP アドレスや普通の文字列を巻き込まないこと
+    for (const char* keep : {"ami.sakurai@example.com", "山田太郎", "/usr/local/bin",
+                             "o=Example", "https://example.com/o=1"}) {
+      if (msg::is_exchange_dn(keep)) {
+        std::printf("  NG: 識別名でないものを識別名と判定した: %s\n", keep);
+        ++dn_ng;
+      }
+    }
+    // 表示名は残る／識別名は消える
+    if (msg::name_with_address("川添貴生", dn) != "川添貴生") {
+      std::printf("  NG: 識別名を落とすと表示名だけになるはず\n");
+      ++dn_ng;
+    }
+    if (msg::name_with_address("櫻井あみ", "ami@example.com") != "櫻井あみ <ami@example.com>") {
+      std::printf("  NG: SMTP アドレスは今までどおり残すこと\n");
+      ++dn_ng;
+    }
+    if (dn_ng == 0) std::printf("  Exchange の内部識別子: OK\n");
+  }
   std::printf("\n  平文本文の msg: PII取りこぼしゼロ %zu/%zu\n", ok, ok + ng);
   std::printf("  HTML本文の msg（bs4近似）: 完全被覆 %d/%d（参考）\n", html_ok, html_total);
-  const bool pass = (ng == 0 && ok > 0 && jp_ng == 0 && s8_ng == 0);
+  const bool pass = (ng == 0 && ok > 0 && jp_ng == 0 && s8_ng == 0 && dn_ng == 0);
   std::printf("\n  === Phase 4c（msg・PII取りこぼしゼロ）: %s ===\n",
               pass ? "PASS (Python の検出PIIを1つも落とさない)" : "FAIL");
   return pass ? 0 : 1;

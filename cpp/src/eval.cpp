@@ -98,6 +98,26 @@ bool covered(const std::string& gt, const std::vector<std::string>& detected) {
   return false;
 }
 
+/// **正解の全体が 1 つの候補に収まっているか**（参考値・門にはしない）。
+///
+/// 上の covered は双方向の部分一致なので、正解 `灰田涼` に対して候補が `灰田` だけでも
+/// 「覆った」と数える。だが実際の出力は `[人名9] 涼` で、**名が残る**。同じ理屈で
+/// `社会医療法人財団 慈泉会 相澤病院` に対して `財団 慈泉会 相澤病院` も覆った扱いになり、
+/// `社会医療法人財` が残る。**端が欠ける類の漏れが、今の物差しでは一切見えない。**
+///
+/// こちらは片方向だけ見る。正解より短い候補では覆ったことにしない。
+///
+/// **なぜ差し替えずに併記するのか**: 既存の数字とラチェットは CI の門になっている。
+/// 物差しを変えると門の意味が変わり、直っていないのに通る／直したのに落ちる、が起きる。
+/// まず「見える」ようにして、実態を把握してから門を動かすかを決める。
+bool covered_strict(const std::string& gt, const std::vector<std::string>& detected) {
+  const std::string g = norm(gt);
+  if (g.empty()) return false;
+  for (const auto& d : detected)
+    if (norm(d).find(g) != std::string::npos) return true;
+  return false;
+}
+
 std::string extract_text(const std::string& path) {
   const std::string e = ext_of(path);
   if (e == "docx") return ooxml::extract_docx(path);
@@ -178,6 +198,8 @@ int main(int argc, char** argv) {
   static const re::Regex postal{numpat::POSTAL};
 
   int in_total = 0, in_masked = 0, out_total = 0, out_masked = 0;
+  int strict_masked = 0;                  // 参考: 厳密照合で覆えた数
+  std::vector<std::string> partial;       // 緩い照合では通るが厳密では通らないもの
   int neg_total = 0, neg_hit = 0, rt_total = 0, rt_ok = 0, rt_ws_only = 0;
   std::vector<std::string> leaks, extract_gaps, false_positives, rt_broken;
 
@@ -206,6 +228,12 @@ int main(int argc, char** argv) {
       if (ok) {
         ++in_masked;
         ++fm;
+        if (covered_strict(it.text, spans)) {
+          ++strict_masked;
+        } else {
+          // 正解の一部しか候補になっていない＝端が欠けている。出力には残りが残る。
+          partial.push_back(f + ": " + it.text + " [" + it.type + "]");
+        }
         continue;
       }
       // 覆われなかった理由を分ける。本文に在るのに拾えないのが「本当の漏れ」で、
@@ -293,6 +321,11 @@ int main(int argc, char** argv) {
   }
 
   std::printf("\n  == 1. マスク率(対象内) : %d/%d ==\n", in_masked, in_total);
+  // **参考値。合否には使わない。** 正解の全体が 1 つの候補に収まっているかを見る。
+  // 上の数字との差が「端が欠けたまま覆った扱いになっている」件数。
+  std::printf("     参考: 厳密照合 %d/%d（差 %d 件は端が欠けている）\n", strict_masked, in_total,
+              in_masked - strict_masked);
+  for (const auto& s2 : partial) std::printf("     ~ 端が欠ける: %s\n", s2.c_str());
   for (const auto& s : leaks) std::printf("     x 漏れ（本文にあるが未検出）: %s\n", s.c_str());
   for (const auto& s : extract_gaps)
     std::printf("     x 抽出漏れ（テキスト化できず）: %s\n", s.c_str());

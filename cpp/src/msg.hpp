@@ -48,6 +48,34 @@ inline std::string mapi_text(const std::string& s) {
   return extractors::decode_text_bytes(s);
 }
 
+/// Exchange の内部識別子（X.500 の識別名）か。
+///
+/// Outlook の受信者・差出人には SMTP アドレスの代わりにこれが入ることがある:
+///
+///   /o=ExchangeLabs/ou=Exchange Administrative Group (FYDIBOHF23SPDLT)/cn=Recipients/cn=394a…-kawazoe
+///
+/// **`X-` ヘッダと同じ配管**だが、`受信者:` という正当なフィールドの中に入っているので
+/// ヘッダを落としただけでは残る。実測ではここから `ExchangeLabs` と
+/// `Exchange Administrative Group` が社名候補として出ていた。
+///
+/// 末尾の `cn=…-kawazoe` は利用者の別名で、マスクもされずに AI へ渡っていた。落とす方が安全。
+///
+/// 判定は**形だけ**で行う——`/o=` で始まり `/属性=値` が連なる。NER に「これは人名か」と
+/// 訊き直す案も試したが、同じ文字列でも周りの文脈で答えが変わり、実在の氏名を落とした。
+/// 機械が決めた形は正規表現で確実に見分けられる。
+inline bool is_exchange_dn(const std::string& s) {
+  static const re::Regex dn{R"(^/(?i:o)=[^/]*(?:/(?i:ou|cn|c|dc|l|s|g|i)=[^/]*)+$)"};
+  return !dn.finditer(utf8::trim(s)).empty();
+}
+
+/// 表示名とアドレスを「名前 <アドレス>」にする。**アドレスが Exchange の識別子なら捨てる。**
+inline std::string name_with_address(const std::string& name, const std::string& addr) {
+  const std::string n = utf8::trim(name);
+  const std::string a = utf8::trim(addr);
+  if (a.empty() || is_exchange_dn(a)) return n;
+  return n.empty() ? "<" + a + ">" : n + " <" + a + ">";
+}
+
 inline std::string prop_string(const ae::mapi_message& m, std::uint16_t id) {
   const std::any* a = m.get_property_value(id);
   if (!a) return {};
@@ -106,8 +134,7 @@ inline Result extract_msg(const std::string& path) {
   if (!subject.empty()) parts.push_back("件名: " + subject);
   const std::string sname = mapi_text(m.sender_name());
   const std::string semail = mapi_text(m.sender_email_address());
-  std::string sender = sname;
-  if (!semail.empty()) sender = (sname.empty() ? "" : sname + " ") + "<" + semail + ">";
+  const std::string sender = name_with_address(sname, semail);
   if (!sender.empty()) parts.push_back("差出人: " + sender);
   // 宛先/Cc は DisplayTo/DisplayCc（NER候補で判定するので生プロパティで十分）
   const std::string to = prop_string(m, 0x0E04);
@@ -117,10 +144,8 @@ inline Result extract_msg(const std::string& path) {
 
   // 受信者ストレージ
   for (const auto& r : m.recipients()) {
-    const std::string nm = utf8::trim(mapi_text(r.display_name));
-    const std::string ad = utf8::trim(mapi_text(r.email_address));
-    if (!nm.empty() || !ad.empty())
-      parts.push_back(utf8::trim("受信者: " + nm + " <" + ad + ">"));
+    const std::string line = name_with_address(mapi_text(r.display_name), mapi_text(r.email_address));
+    if (!line.empty()) parts.push_back("受信者: " + line);
   }
 
   // トランスポートヘッダ（【ヘッダ】ブロック）
