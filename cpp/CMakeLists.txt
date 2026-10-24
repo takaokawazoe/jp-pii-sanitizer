@@ -283,6 +283,29 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
       target_compile_definitions(unit_tests PRIVATE ${SODIUM_DEFS})
     endif()
 
+    # Excel アドイン用ヘルパー（docs/excel-helper.md）。Core をセル単位に組み替えた
+    # helper::Session を名前付きパイプ（Windows）／stdio で公開する。抽出器
+    # （miniz/pugixml/PDFium/Aspose）は要らない——セルの値はアドインが Excel から直接渡す。
+    # Aspose に依存しないので、Linux でもビルドでき、--selftest と --stdio で CI に掛かる。
+    add_executable(jp_pii_helper src/helper/main.cpp)
+    set_target_properties(jp_pii_helper PROPERTIES OUTPUT_NAME "jp-pii-helper")
+    add_dependencies(jp_pii_helper tokenizer_shim_build sudachi_shim_build)
+    target_include_directories(jp_pii_helper PRIVATE
+      ${ORT_DIR}/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
+      ${CMAKE_CURRENT_BINARY_DIR}/pcre2
+      ${SODIUM_INCLUDE})
+    target_link_libraries(jp_pii_helper PRIVATE
+      ${ORT_LIB} ${TOKSHIM_LIB} ${SHIM_LIB} pcre2-8 ${SODIUM_LIB} ${SYS_LIBS})
+    if(SODIUM_DEFS)
+      target_compile_definitions(jp_pii_helper PRIVATE ${SODIUM_DEFS})
+    endif()
+    if(WIN32)
+      target_link_libraries(jp_pii_helper PRIVATE shell32)  # CommandLineToArgvW
+      copy_runtime_dll(jp_pii_helper ${ORT_DLLS})
+    endif()
+
     # Phase 4c: .msg（Aspose.Email FOSS vendoring+patch）＋ NER候補一致で判定。
     # Aspose は C++17。gcc13 は -Wchanges-meaning がエラーになるので -fpermissive で回避する。
     # MSVC は該当診断が無い代わり、巨大な生成物・UTF-8 ソース対応に /bigobj /utf-8 が要る。

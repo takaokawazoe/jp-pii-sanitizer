@@ -61,6 +61,12 @@ Linux/macOS. CI builds it and smoke-tests a `detect → mask → restore`
 round-trip, and `package_win.ps1` ships it in the portable ZIP next to the GUI.
 Usage and design/implementation notes: [../docs/cli.md](../docs/cli.md).
 
+A third front end is the **Excel helper** — CMake target `jp_pii_helper`, exe
+`jp-pii-helper` — the same core driven cell-by-cell over a named pipe (Windows) or
+stdio, for an Excel-DNA add-in. It needs none of the file extractors, so it builds on
+Linux too; `--selftest` and `tools/helper_smoke.py` cover it in CI. Design and protocol:
+[../docs/excel-helper.md](../docs/excel-helper.md).
+
 ### Prerequisites
 
 **Linux / WSL** (where the conformance tests run):
@@ -263,6 +269,12 @@ WebView2 に載せたもの。
 再利用し（WebView2 不要）、Linux/macOS でもビルド・実行できる。CI がビルド＋
 `detect → mask → restore` のスモークを回し、`package_win.ps1` がポータブル ZIP に GUI と
 同梱する。使い方・設計/実装メモは [../docs/cli.md](../docs/cli.md)。
+
+3 つ目の入口が **Excel ヘルパー** — CMake ターゲット `jp_pii_helper`、exe `jp-pii-helper`。
+同じコアをセル単位で、名前付きパイプ（Windows）または stdio 越しに動かす。Excel-DNA
+アドインの相手役。ファイル抽出器を一切使わないので Linux でもビルドでき、`--selftest` と
+`tools/helper_smoke.py` が CI で検査する。設計とプロトコル:
+[../docs/excel-helper.md](../docs/excel-helper.md)。
 
 ### 必要なもの
 

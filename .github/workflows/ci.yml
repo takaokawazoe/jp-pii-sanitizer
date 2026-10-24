@@ -1,8 +1,8 @@
 name: ci
 
 # Builds the whole tree on Linux (proving the platform-independent core + CLI
-# are cross-platform), runs the conformance suite plus CLI smoke tests, and measures
-# detection quality with the eval harness.
+# are cross-platform), runs the conformance suite plus CLI and Excel-helper smoke tests,
+# and measures detection quality with the eval harness.
 # The GUI target is Windows-only and is not built here.
 
 on:
@@ -141,6 +141,16 @@ jobs:
           ./build/jp-pii-sanitizer-cli detect testdata/eml/02_iso2022jp_qp.eml --data models > /tmp/eml.jsonl
           grep -q '佐藤美咲' /tmp/eml.jsonl
           grep -q '渡辺隆志' /tmp/eml.jsonl
+
+      # Excel アドイン用ヘルパー（docs/excel-helper.md）。--selftest はプロセス内で
+      # セル境界の不変条件・対応表の往復・フレーミングを検査し、helper_smoke.py は
+      # 実プロセスを --stdio で叩く（アドインがやる順序そのまま）。
+      - name: helper (self-test + stdio smoke)
+        working-directory: cpp
+        run: |
+          set -euxo pipefail
+          ./build/jp-pii-helper --selftest --data models
+          python3 tools/helper_smoke.py ./build/jp-pii-helper --data models
 
       # 検知精度の測定。適合試験（挙動が変わっていないか）とは別で、こちらは
       # 「どれだけ捕まえられているか」を測る。

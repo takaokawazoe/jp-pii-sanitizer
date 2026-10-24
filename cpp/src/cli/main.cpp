@@ -38,6 +38,7 @@
 
 #include <sodium.h>  // sodium_memzero（パスフレーズの後始末）
 
+#include "data_root.hpp"  // models ディレクトリの解決（ヘルパーと共有）
 #include "eml.hpp"
 #include "extractors.hpp"
 #include "file_io.hpp"
@@ -86,38 +87,9 @@ std::string wide_to_utf8(const wchar_t* w) {
 }
 #endif
 
-std::string exe_dir() {
-#ifdef _WIN32
-  wchar_t buf[MAX_PATH];
-  DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
-  if (n == 0 || n >= MAX_PATH) return ".";
-  std::wstring w(buf, n);
-  const auto slash = w.find_last_of(L"\\/");
-  const std::wstring dir = (slash == std::wstring::npos) ? L"." : w.substr(0, slash);
-  const std::string out = wide_to_utf8(dir.c_str());
-  return out.empty() ? "." : out;
-#else
-  char buf[4096];
-  ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-  if (n <= 0) return ".";
-  std::string p(buf, static_cast<std::size_t>(n));
-  const auto slash = p.find_last_of('/');
-  return slash == std::string::npos ? "." : p.substr(0, slash);
-#endif
-}
-
 // **素の std::ifstream で存在確認しないこと。** MSVC はナローパスを ANSI(cp932) と
 // して解釈するため、日本語を含むパスで必ず false になる。fileio はワイド版で開く。
 bool file_exists(const std::string& p) { return fileio::exists(p); }
-
-// models ディレクトリ: --data > <exe_dir>/models > ./models
-std::string resolve_data_root(const std::string& override_dir) {
-  if (!override_dir.empty()) return override_dir;
-  const std::string beside = exe_dir() + "/models";
-  if (file_exists(beside + "/patterns.json")) return beside;
-  if (file_exists("models/patterns.json")) return "models";
-  return beside;  // 失敗時のエラーメッセージ用にとりあえず返す
-}
 
 std::string read_stream(std::istream& in) {
   std::ostringstream ss;
@@ -708,7 +680,7 @@ int cmd_detect(const Args& a) {
 
   // prose → 候補 JSONL（-o / stdout）
   if (!prose_files.empty()) {
-    Engine eng(resolve_data_root(a.data));
+    Engine eng(dataroot::resolve(a.data));
     auto files = ingest_files(prose_files, {});
     const auto cands = detect_candidates(eng, files);
     OutSink sink(a.out);
@@ -744,7 +716,7 @@ int cmd_detect(const Args& a) {
 
 int cmd_mask(const Args& a) {
   if (a.files.empty()) die("mask: 対象ファイルを指定してください");
-  Engine eng(resolve_data_root(a.data));
+  Engine eng(dataroot::resolve(a.data));
   auto files = ingest_files(a.files, build_table_specs(a));
 
   std::vector<tokenizer::ConfirmedTerm> confirmed;
