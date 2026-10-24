@@ -9,7 +9,7 @@ Build instructions. The rationale behind the design is in [../DESIGN.md](../DESI
 ## English
 
 The core (NER inference, morphology, detection, masking, reverse) and every input
-format (docx/pptx/xlsx/csv/txt/pdf/msg) were ported to C++ and checked stage by
+format (docx/pptx/xlsx/csv/txt/pdf/msg/eml) were ported to C++ and checked stage by
 stage against a Python reference implementation. **The conformance tests are
 green on both WSL/Linux and Windows/MSVC.**
 
@@ -218,7 +218,7 @@ Build the portable ZIP with `powershell -File tools\package_win.ps1`.
 
 ## 日本語
 
-中核（NER 推論・形態素・検知・マスク・逆置換）＋全入口形式（docx/pptx/xlsx/csv/txt/pdf/msg）を
+中核（NER 推論・形態素・検知・マスク・逆置換）＋全入口形式（docx/pptx/xlsx/csv/txt/pdf/msg/eml）を
 C++ に移植し、各段を Python 参照実装（oracle）と突き合わせて検証した。**適合試験は
 WSL/Linux ＋ Windows(MSVC) の両方で green。**
 
@@ -235,8 +235,8 @@ WSL/Linux ＋ Windows(MSVC) の両方で green。**
 | `phase0_parity` | input_ids → ラベル が torch と一致するか | **4873/4873** |
 | `phase1_sudachi` | 形態素／`person_name_core`／`org_name_core` が SudachiPy と一致するか | **398/398・120/120・120/120** |
 | `phase2_regex` | 8パターンの正規表現が Python `re` と同じスパンを返すか | **240/240** |
-| `phase2_hf` | HF の simple 集約が Python と同じスパンを返すか | **267/267** |
-| `phase2_pipeline` | 検知パイプライン全体の候補が Python と一致するか | **155/155** |
+| `phase2_hf` | HF の集約が Python と同じスパンを返すか（ラテン文字は単語単位） | **274/274** |
+| `phase2_pipeline` | 検知パイプライン全体の候補が Python と一致するか | **164/164** |
 | `phase3_tokenize` | トークン化・逆置換・フリガナ名寄せが Python と一致するか | readings 68/68・各5/5 |
 | `phase4_extract` | docx/pptx/xlsx/csv/txt/pdf の抽出テキスト。xlsx のふりがな除外も見る | **8/8** |
 | `phase4_msg` | .msg が検出PIIを1つも落とさないか。日本語パス・非 Unicode 本文も見る | 平文 10/10 |
@@ -281,9 +281,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y   # Rust
 リポジトリには入れていないので各自で `cpp/third_party/` へ配置する。バージョンは固定（oracle を
 作った Python 側と同一バイナリ系列に揃えるため）。コマンドは上の英語節と同じ。Windows は
 onnxruntime/pdfium を win-x64 版で、それ以外はソースで取得。patch は `any_to_string()` が
-PT_BINARY の値に空を返すバグ（実物 Outlook の HTML 本文が読めない）を直すもの
-。Windows で GUI をビルドするには WebView2 SDK（NuGet
-`Microsoft.Web.WebView2` を `third_party/webview2/`）も要る。
+PT_BINARY の値に空を返すバグ（実物 Outlook の HTML 本文が読めない）を直すもの。
+Windows で GUI をビルドするには WebView2 SDK（NuGet `Microsoft.Web.WebView2` を
+`third_party/webview2/`）も要る。
 
 ### 2. モデルと辞書の取得（Release から・約 750MB）
 
@@ -343,8 +343,7 @@ cmake --build build
 
 - **fp16 は `ORT_ENABLE_ALL` でロードできない**（LayerNorm fusion が fp16 の Cast と衝突）。
   `ORT_ENABLE_EXTENDED` を使う。`phase0_parity` は通る戦略を上から総当たり。
-- **INT8 は使わない**。予測が「エンティティ→O」方向（マスク漏れ）に変わる＝opt-out で最も危険
-  。
+- **INT8 は使わない**。予測が「エンティティ→O」方向（マスク漏れ）に変わる＝opt-out で最も危険。
 - **オフセットは文字/バイトの取り違えに注意**。HF `get_offsets()` はバイト、Python の
   `offset_mapping` は文字。sudachi.rs も `begin()` がバイト・`begin_c()` がコードポイント。
   ids やラベルだけ見ていると気づけないので、oracle にオフセットを含めて突き合わせる。
