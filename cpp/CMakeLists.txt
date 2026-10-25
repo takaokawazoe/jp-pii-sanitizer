@@ -382,7 +382,9 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
     # この段階は最小疎通（ウィンドウ＋JS↔C++ ブリッジ）のみ。コア（extract_candidates 等）の
     # 配線は次段。WebView2 は DLL ローダ（WebView2Loader.dll）を exe の隣に置く定番構成。
     # 実行時は WebView2 Runtime（Evergreen・Win11 標準搭載）が別途必要。
-    if(WIN32)
+    # Aspose（.msg）と WebView2 SDK を vendoring した環境でだけ作る。CI の Windows ジョブは
+    # ヘルパー・XLL・インストーラだけが目的で両方を置かないので、ここをまるごと飛ばす。
+    if(WIN32 AND EXISTS ${ASPOSE_DIR}/CMakeLists.txt AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/build/native)
       enable_language(RC)  # アプリアイコン（app.rc）を .res にコンパイルするため
       set(WV2_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/build/native)
       # コア（extractors=miniz+pugixml、pdf=PDFium、検知=ONNX+shims+pcre2）を GUI exe に取り込む。
@@ -423,6 +425,8 @@ if(EXISTS ${PCRE2_DIR}/CMakeLists.txt)
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/app/index.html $<TARGET_FILE_DIR:jp_pii_sanitizer>
         VERBATIM)
+    elseif(WIN32)
+      message(STATUS "Aspose または WebView2 SDK が無いため GUI（jp_pii_sanitizer）をスキップします")
     endif()
   endif()
 else()
