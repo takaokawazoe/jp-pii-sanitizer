@@ -14,6 +14,12 @@ import struct
 import subprocess
 import sys
 
+# Windows のコンソール／CI ランナーは stdout が cp1252 や cp932 のことがあり、日本語の
+# 検査名を print した時点で UnicodeEncodeError になる。検査結果の文字列は UTF-8 で出す。
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 def main() -> int:
     if len(sys.argv) < 2:
