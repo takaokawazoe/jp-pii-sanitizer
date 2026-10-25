@@ -94,6 +94,25 @@ inline std::vector<Cell> parse_cells(const json& arr) {
   return cells;
 }
 
+/// columns:[{c, r1, r2, kind, skip:[...]}] → 列指定。種別の検査は Session 側（不正なら ok:false）。
+inline std::vector<ColumnRule> parse_columns(const json& arr) {
+  std::vector<ColumnRule> rules;
+  if (arr.is_array())
+    for (const auto& x : arr) {
+      if (!x.is_object()) continue;
+      ColumnRule r;
+      r.col = x.value("c", 0);
+      r.r1 = x.value("r1", 1);
+      r.r2 = x.value("r2", 1 << 20);  // 省略は列の最後まで（Excel は 1,048,576 行）
+      r.kind = x.value("kind", std::string());
+      if (const auto it = x.find("skip"); it != x.end() && it->is_array())
+        for (const auto& v : *it)
+          if (v.is_string()) r.skip.push_back(v.get<std::string>());
+      rules.push_back(std::move(r));
+    }
+  return rules;
+}
+
 /// 配列フィールドを安全に取り出す（欠けていれば空配列）。
 /// 素の `req["key"]` は欠けたキーで null を作り、それを回すと type_error を投げる。
 inline const json& array_or_empty(const json& req, const char* key) {
@@ -166,10 +185,13 @@ class Server {
       return json{{"ok", true}};
     }
     if (cmd == "load") return s_.load(parse_cells(array_or_empty(req, "cells")));
-    if (cmd == "preview") return s_.preview(parse_confirmed(array_or_empty(req, "confirmed")));
+    if (cmd == "preview")
+      return s_.preview(parse_confirmed(array_or_empty(req, "confirmed")),
+                        parse_columns(array_or_empty(req, "columns")));
     if (cmd == "sanitize")
       return s_.sanitize(parse_confirmed(array_or_empty(req, "confirmed")),
-                         req.value("reversible", true));
+                         req.value("reversible", true),
+                         parse_columns(array_or_empty(req, "columns")));
     if (cmd == "saveMapping") return save_mapping(req);
     if (cmd == "reverse") return reverse(req);
     if (cmd == "reset") {

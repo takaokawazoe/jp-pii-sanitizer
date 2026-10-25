@@ -18,13 +18,29 @@
 namespace tokenizer {
 
 /// 種別 → トークンの接頭辞。組織は会社を想定し COMPANY。
+///
+/// EMAIL/PHONE は普段は正規表現が付ける種別だが、確定語として来ても同じ接頭辞にする
+/// （Excel アドインの列指定: 「電話」列の値は正規表現に合わない内線番号でも電話として伏せる）。
+/// ID は固有表現ではない識別子（社員番号・顧客 ID）。NER は出さず、利用者が列を明示した
+/// ときだけ使う。
 inline const std::map<std::string, std::string> TOKEN_PREFIX = {
-    {"PERSON", "PERSON"}, {"ORGANIZATION", "COMPANY"}, {"LOCATION", "ADDRESS"}};
+    {"PERSON", "PERSON"}, {"ORGANIZATION", "COMPANY"}, {"LOCATION", "ADDRESS"},
+    {"EMAIL", "EMAIL"},   {"PHONE", "PHONE"},          {"ID", "ID"}};
 
 /// 不可逆（墨消し）モードの日本語ラベル。種別＋連番で社内AIが人物を追える。
 inline const std::map<std::string, std::string> LABEL_JA = {
-    {"PERSON", "人名"}, {"COMPANY", "会社名"}, {"ADDRESS", "住所"},
-    {"EMAIL", "メール"}, {"PHONE", "電話"}, {"POSTAL", "郵便番号"}};
+    {"PERSON", "人名"},   {"COMPANY", "会社名"}, {"ADDRESS", "住所"},
+    {"EMAIL", "メール"},  {"PHONE", "電話"},     {"POSTAL", "郵便番号"},
+    {"ID", "識別子"}};
+
+/// 不可逆トークン `[ラベルn]` のラベル部。**LABEL_JA の値と一致させる。**
+/// 挿入済みトークンの保護・残骸検査・元文書の既存トークン検査の 3 か所で使う。
+inline constexpr const char* IRREVERSIBLE_LABELS = "人名|会社名|住所|メール|電話|郵便番号|識別子";
+
+/// 可逆 `{{PREFIX_n}}` と不可逆 `[ラベルn]` の両方に当たるパターン。
+inline std::string any_placeholder_pattern() {
+  return std::string(R"(\{\{[A-Z]+_\d+\}\}|\[(?:)") + IRREVERSIBLE_LABELS + R"()\d+\])";
+}
 
 /// 空白・改行を無視して照合する最小文字数（PDFの行末分断対策）。
 /// 短い語は誤マッチ（「山田\n中村」→「田中」）を避けるため完全一致のみ。
@@ -33,7 +49,54 @@ inline constexpr std::size_t WS_MATCH_MIN_CHARS = 4;
 struct ConfirmedTerm {
   std::string text;
   std::string entity_type;
+  /// true なら「語として」だけ当てる: 前後が語構成文字（英数字・かな・漢字など）のときは
+  /// 当てない。Excel の列指定の値（ID「A7」）を他のセルに波及させるときに使う——部分一致だと
+  /// 「A75」の中まで伏せる。人名などの通常の確定語は従来どおり部分一致（false）。
+  bool whole_word = false;
 };
+
+/// 語を構成するコードポイントか。ASCII 英数字と、記号・空白を除く非 ASCII（かな・漢字・
+/// 全角英数・ラテン拡張など）。全角の句読点・括弧・ダッシュ類は語構成文字ではない。
+inline bool is_word_cp(char32_t cp) {
+  if (cp < 0x80) return (cp >= '0' && cp <= '9') || (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z');
+  if (cp >= 0x00A0 && cp <= 0x00BF) return false;  // Latin-1 の記号
+  if (cp >= 0x2000 && cp <= 0x206F) return false;  // 一般句読点（ダッシュ・引用符）
+  if (cp >= 0x2E00 && cp <= 0x2E7F) return false;  // 補助句読点
+  if (cp >= 0x3000 && cp <= 0x303F) return false;  // CJK の記号と句読点（全角空白・「」・、。）
+  if (cp == 0x30FB) return false;                  // ・（中点）
+  if (cp >= 0xFF00 && cp <= 0xFF0F) return false;  // 全角 ！〜／
+  if (cp >= 0xFF1A && cp <= 0xFF20) return false;  // 全角 ：〜＠
+  if (cp >= 0xFF3B && cp <= 0xFF40) return false;  // 全角 ［〜｀
+  if (cp >= 0xFF5B && cp <= 0xFF65) return false;  // 全角 ｛〜･
+  if (cp == 0xFFFD) return false;
+  return true;
+}
+
+/// text の [b, e) が語の境界に収まっているか（直前・直後が語構成文字でない）。
+inline bool at_word_boundary(const std::string& text, std::size_t b, std::size_t e) {
+  if (b > 0 && is_word_cp(utf8::decode_cp(text, utf8::prev_cp_start(text, b)))) return false;
+  if (e < text.size() && is_word_cp(utf8::decode_cp(text, e))) return false;
+  return true;
+}
+
+/// 語境界に収まるヒットだけ残す（whole_word の確定語用）。
+inline std::vector<std::pair<std::size_t, std::size_t>> keep_word_boundary(
+    const std::string& text, const std::vector<std::pair<std::size_t, std::size_t>>& hits) {
+  std::vector<std::pair<std::size_t, std::size_t>> out;
+  for (const auto& h : hits)
+    if (at_word_boundary(text, h.first, h.second)) out.push_back(h);
+  return out;
+}
+
+/// 文字列に語構成文字が 1 つも無いか（「-」「―」「N/A」の / だけ、など）。
+inline bool symbol_only(const std::string& s) {
+  for (std::size_t i = 0; i < s.size();) {
+    std::size_t n;
+    if (is_word_cp(utf8::decode_cp(s, i, &n))) return false;
+    i += n;
+  }
+  return true;
+}
 
 /// Python の re.escape 相当（PCRE2 用）。
 inline std::string re_escape(const std::string& s) {
@@ -192,6 +255,7 @@ class Tokenizer {
           pos = p + term.text.size();
         }
       }
+      if (term.whole_word) hits = keep_word_boundary(text, hits);
       // 既に挿入したトークンの内側にマッチしたものは捨てる。捨てないと、短い確定語
       // （手動追記の "ON" 等）が {{PERSON_1}} の内部に当たってトークンを壊し、逆置換が
       // できなくなる。**置換対象が全滅したら assign もしない**（トークン番号を進めない）。
@@ -226,7 +290,7 @@ class Tokenizer {
   /// 現在のテキスト中の「挿入済みトークン」の位置（可逆 {{X_n}} / 不可逆 [ラベルn]）。
   std::vector<std::pair<std::size_t, std::size_t>> placeholder_spans(const std::string& s) const {
     static const re::Regex rev{R"(\{\{[A-Z]+_\d+\}\})"};
-    static const re::Regex irr{R"(\[(?:人名|会社名|住所|メール|電話|郵便番号)\d+\])"};
+    static const re::Regex irr{std::string(R"(\[(?:)") + IRREVERSIBLE_LABELS + R"()\d+\])"};
     std::vector<std::pair<std::size_t, std::size_t>> out;
     for (const auto& m : (reversible_ ? rev : irr).finditer(s)) out.emplace_back(m.begin, m.end);
     return out;
@@ -330,8 +394,7 @@ inline std::vector<std::string> find_unreplaced_tokens(const std::string& text) 
 /// 見つかった綴りを返す（空なら問題なし）。マスクを止めるほどではないので、呼び出し側で
 /// 警告として見せる——「静かに壊れる」のだけは避ける。
 inline std::vector<std::string> existing_placeholders(const std::string& text) {
-  static const re::Regex ph{
-      R"(\{\{[A-Z]+_\d+\}\}|\[(?:人名|会社名|住所|メール|電話|郵便番号)\d+\])"};
+  static const re::Regex ph{any_placeholder_pattern()};
   std::vector<std::string> found;
   for (const auto& m : ph.finditer(text))
     if (std::find(found.begin(), found.end(), m.text) == found.end()) found.push_back(m.text);
@@ -348,8 +411,7 @@ inline std::vector<std::string> safety_gate(const std::string& tokenized,
   static const re::Regex postal{numpat::POSTAL};
   // 挿入済みトークンの**内側**は「残存」ではない。短いラテン語の確定語（"ON" 等）は
   // {{PERSON_1}} の中に文字列として現れるため、素の find では偽陽性になる。
-  static const re::Regex ph{
-      R"(\{\{[A-Z]+_\d+\}\}|\[(?:人名|会社名|住所|メール|電話|郵便番号)\d+\])"};
+  static const re::Regex ph{any_placeholder_pattern()};
   std::vector<std::pair<std::size_t, std::size_t>> prot;
   for (const auto& m : ph.finditer(tokenized)) prot.emplace_back(m.begin, m.end);
   const auto inside = [&](std::size_t b, std::size_t e) {
@@ -375,11 +437,40 @@ inline std::vector<std::string> safety_gate(const std::string& tokenized,
   return leaks;
 }
 
+/// safety_gate の語境界版: values が**語として**本文に残っていれば漏れ。Excel の列指定の
+/// 値（ID「A7」）用——部分一致だと「A75」で鳴る。番号系の regex 検査はしない（safety_gate 側）。
+inline std::vector<std::string> safety_gate_whole(const std::string& tokenized,
+                                                  const std::vector<std::string>& values) {
+  static const re::Regex ph{any_placeholder_pattern()};
+  std::vector<std::pair<std::size_t, std::size_t>> prot;
+  for (const auto& m : ph.finditer(tokenized)) prot.emplace_back(m.begin, m.end);
+  const auto inside = [&](std::size_t b, std::size_t e) {
+    for (const auto& p : prot)
+      if (b >= p.first && e <= p.second) return true;
+    return false;
+  };
+  std::vector<std::string> leaks;
+  for (const auto& v : values) {
+    if (v.empty()) continue;
+    for (std::size_t pos = 0, p; (p = tokenized.find(v, pos)) != std::string::npos; pos = p + v.size()) {
+      const std::size_t e = p + v.size();
+      if (!inside(p, e) && at_word_boundary(tokenized, p, e)) {
+        leaks.push_back(v);
+        break;
+      }
+    }
+  }
+  return leaks;
+}
+
 // ハイライト用カテゴリ（entity_type → 表示カテゴリ）。_HL_CATEGORY の移植。
 inline std::string hl_category(const std::string& entity_type) {
   if (entity_type == "PERSON") return "person";
   if (entity_type == "ORGANIZATION") return "company";
   if (entity_type == "LOCATION") return "address";
+  if (entity_type == "EMAIL") return "email";
+  if (entity_type == "PHONE") return "phone";
+  if (entity_type == "ID") return "id";
   return "company";  // 既定
 }
 
@@ -455,16 +546,19 @@ inline std::vector<MaskSpan> find_mask_spans(const std::string& text,
     const auto ct = canonical_of.find(term.text);
     const std::string shown = (ct != canonical_of.end()) ? ct->second : term.text;
     const std::string core = strip_spaces(term.text);
+    std::vector<std::pair<std::size_t, std::size_t>> hits;
     if (utf8::char_len(core) >= WS_MATCH_MIN_CHARS) {
       re::Regex pat(ws_insensitive_pattern(term.text));
-      for (const auto& m : pat.finditer(text)) add(m.begin, m.end, cat, shown);
+      for (const auto& m : pat.finditer(text)) hits.emplace_back(m.begin, m.end);
     } else {
       std::size_t start = 0, i;
       while ((i = text.find(term.text, start)) != std::string::npos) {
-        add(i, i + term.text.size(), cat, shown);
+        hits.emplace_back(i, i + term.text.size());
         start = i + term.text.size();
       }
     }
+    if (term.whole_word) hits = keep_word_boundary(text, hits);  // tokenize と同じ条件
+    for (const auto& h : hits) add(h.first, h.second, cat, shown);
   }
 
   std::sort(spans.begin(), spans.end());

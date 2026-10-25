@@ -2,9 +2,10 @@
 
 **Language:** English (below) · [日本語](#日本語)
 
-> **Status: helper implemented** (`jp-pii-helper`, CMake target `jp_pii_helper`).
-> The Excel-DNA add-in that talks to it is not written yet. This document is the
-> contract the add-in will be built against, plus the reasoning behind its shape.
+> **Status: helper and add-in implemented** (`jp-pii-helper`, CMake target `jp_pii_helper`;
+> add-in under [`excel/`](../excel/README.md)). This document is the contract between
+> the two, plus the reasoning behind its shape. The per-user installer and a Windows CI
+> build are still to come.
 
 ---
 
@@ -108,8 +109,8 @@ whitespace-only cells may be sent but are dropped.
 | `hello` | — | `protocol`, `ready` (model loaded?) |
 | `init` | — | loads model + dictionary (slow, once); `error` on failure |
 | `load` | `cells` | `cell_count`, `candidates:[{text,entity_type,count}]`, `cells:[{r,c,spans:[[begin,end,category,term],…]}]` (only cells with spans; offsets are character offsets within the cell), `warnings` |
-| `preview` | `confirmed:[{text,type}]` | `cells` as in `load`, for the given confirmed list |
-| `sanitize` | `confirmed`, `reversible` (default true) | `cells:[{r,c,text}]` **changed cells only**, `cell_count`, `changed`, `mapping_count`, `reversible`, `leaks` (empty = safety gate passed) |
+| `preview` | `confirmed:[{text,type}]`, optional `columns` (below) | `cells` as in `load`, for the given confirmed list and column rules |
+| `sanitize` | `confirmed`, `reversible` (default true), optional `columns` | `cells:[{r,c,text}]` **changed cells only**, `cell_count`, `changed`, `mapping_count`, `reversible`, `leaks` (empty = safety gate passed), `excludedLeaks` (masked values still present in `NONE` columns) |
 | `saveMapping` | `path`, optional `passphrase` | writes the mapping to `path` (plaintext `version 1`, or the encrypted `version 2` envelope); `encrypted`. Fails closed. |
 | `reverse` | `mappingPath` **or** `mappingText`; `cells` **or** `text`; optional `passphrase` | `cells:[{r,c,text}]` (changed only) or `restored`; `leftovers`. `needsPassphrase:true` when the mapping is encrypted and no passphrase was given |
 | `reset` | — | clears cells, candidates and mapping |
@@ -121,6 +122,36 @@ uses** (`winmain.cpp` / `mapping_io.hpp`), so a mapping saved from Excel restore
 
 Passphrases travel add-in → helper only, are never returned, and are zeroized after use
 (`sodium_memzero`) in the request buffer and the parsed JSON.
+
+#### Column rules (`columns`)
+
+In a table a column *is* an attribute, so the add-in lets the user set a kind per column.
+`columns:[{c, r1, r2, kind, skip:[…]}]` applies `kind` to the non-empty cells of column
+`c` in rows `r1..r2` (1-based, inclusive; `r2` defaults to the last row; the header row is
+excluded by starting `r1` below it). Rules travel with `preview`/`sanitize`, not `load`,
+so changing a column does not rerun NER.
+
+| `kind` | Effect on each cell in the column |
+|---|---|
+| `PERSON`, `ORGANIZATION`, `LOCATION`, `PHONE`, `EMAIL`, `ID` | the **whole cell** (minus surrounding whitespace) becomes one token of that kind; the confirmed-term matcher and the number regexes are *not* run inside it. This is what makes `〒100-0001 東京都…` come out as one `{{ADDRESS_n}}` instead of a postal token followed by a leftover address, and lets an extension like `内線1234` be a `{{PHONE_n}}` |
+| `NONE` | excluded: no detection, no replacement, returned verbatim. `sanitize` still reports values of the mapping that remain in such cells as `excludedLeaks` (a warning, not a stop) |
+
+`skip` lists values the user opted out of in that column (compared after trimming); those
+cells fall back to normal matching. Values made of symbols only (`-`, `―`) are never turned
+into a token even without `skip` — a blank marker is not an e-mail address, and putting it in
+the mapping makes the safety gate fire on every hyphen.
+
+The value of a whole-cell token **is propagated** to the normal cells by the helper, as a
+*whole-word* match with the same token: `A-001 の件` in a 備考 column becomes `{{ID_1}} の件`,
+while `A-0012` is left alone. The add-in additionally puts person/organization/location column
+values into `confirmed`, so those also get the ordinary substring and reading-based matching.
+**Weak values** — a single character, or digits only and shorter than 5 characters (`1`,
+`0042`) — are masked in their own cell but neither propagated nor searched for by the safety
+gate: every `1` in a date would otherwise count as a leak. The gate checks propagated column
+values with word boundaries and everything else (confirmed terms, numbers) by substring as
+before. `ID` is a new kind for identifiers that are not named entities (employee numbers,
+customer IDs): reversible `{{ID_n}}`, irreversible `[識別子n]`. It is never produced by
+detection, only by an explicit column rule.
 
 ### Verification
 
@@ -238,8 +269,8 @@ Passphrases travel add-in → helper only, are never returned, and are zeroized 
 | `hello` | — | `protocol`、`ready`（モデル読込済みか） |
 | `init` | — | モデルと辞書を読む（重い・1 回）。失敗なら `error` |
 | `load` | `cells` | `cell_count`、`candidates:[{text,entity_type,count}]`、`cells:[{r,c,spans:[[begin,end,category,term],…]}]`（スパンのあるセルのみ。オフセットはセル内の文字単位）、`warnings` |
-| `preview` | `confirmed:[{text,type}]` | 与えた確定リストでの `cells`（`load` と同形） |
-| `sanitize` | `confirmed`、`reversible`（既定 true） | `cells:[{r,c,text}]` **変わったセルのみ**、`cell_count`、`changed`、`mapping_count`、`reversible`、`leaks`（空なら安全ゲート通過） |
+| `preview` | `confirmed:[{text,type}]`、任意 `columns`（後述） | 与えた確定リストと列指定での `cells`（`load` と同形） |
+| `sanitize` | `confirmed`、`reversible`（既定 true）、任意 `columns` | `cells:[{r,c,text}]` **変わったセルのみ**、`cell_count`、`changed`、`mapping_count`、`reversible`、`leaks`（空なら安全ゲート通過）、`excludedLeaks`（`NONE` の列に残っているマスク対象の値） |
 | `saveMapping` | `path`、任意 `passphrase` | 対応表を `path` に書く（平文 `version 1`、または暗号化 `version 2` の封筒）。`encrypted`。fail closed |
 | `reverse` | `mappingPath` **か** `mappingText`、`cells` **か** `text`、任意 `passphrase` | `cells:[{r,c,text}]`（変わったもののみ）または `restored`、`leftovers`。暗号化済みでパスフレーズが無ければ `needsPassphrase:true` |
 | `reset` | — | セル・候補・対応表を消す |
@@ -251,6 +282,32 @@ Passphrases travel add-in → helper only, are never returned, and are zeroized 
 
 パスフレーズはアドイン → ヘルパーの一方向のみで、返さない。使用後は要求バッファと
 パース済み JSON の両方で `sodium_memzero` する。
+
+#### 列指定（`columns`）
+
+表では列＝属性なので、アドインは列ごとに種別を決められる。
+`columns:[{c, r1, r2, kind, skip:[…]}]` は列 `c` の `r1..r2` 行（1 始まり・両端含む。
+`r2` 省略は最終行まで。見出し行は `r1` をその下から始めて外す）の空でないセルに `kind` を
+適用する。列指定は `load` ではなく `preview`／`sanitize` に乗るので、列の扱いを変えても
+NER は回り直さない。
+
+| `kind` | 列の各セルへの効果 |
+|---|---|
+| `PERSON`・`ORGANIZATION`・`LOCATION`・`PHONE`・`EMAIL`・`ID` | **セル全体**（前後の空白を除く）をその種別の 1 トークンにする。中では確定語の照合も番号系の正規表現も走らせない。これで `〒100-0001 東京都…` が「郵便番号トークン＋残りの住所」ではなく 1 つの `{{ADDRESS_n}}` になり、`内線1234` のような内線も `{{PHONE_n}}` にできる |
+| `NONE` | 対象外: 検知も置換もせず原文のまま返す。ただし `sanitize` は、対応表に載った値がその列に残っていれば `excludedLeaks` で知らせる（止めはしない） |
+
+`skip` はその列で利用者がチェックを外した値（前後の空白を除いて比較）。該当セルは通常の
+照合に戻る。記号だけの値（`-`・`―`）は `skip` に無くてもトークンにしない——空欄印は
+メールアドレスではないし、対応表に載せると安全ゲートがハイフンのたびに鳴る。
+
+セル全体トークンの値はヘルパーが通常のセルにも**語として**波及させ、同じトークンにする
+（備考列の `A-001 の件` → `{{ID_1}} の件`。`A-0012` の中には当てない）。人名・組織・住所の
+列の値はアドインが `confirmed` にも載せるので、従来の部分一致と読み寄せも効く。
+**弱い値**——1 文字、または数字だけで 5 文字未満（`1`・`0042`）——は自分のセルでは伏せるが
+波及もせず、安全ゲートも探さない（日付の中の `1` が全部残存扱いになる）。ゲートは、波及
+させた列の値は語境界つきで、それ以外（確定語・番号系）は従来どおり部分一致で調べる。
+`ID` は固有表現ではない識別子（社員番号・顧客 ID）のための新しい種別で、可逆 `{{ID_n}}`・
+不可逆 `[識別子n]`。検知からは出ず、列指定で明示したときだけ使う。
 
 ### 検証
 

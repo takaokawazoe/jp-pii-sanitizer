@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Excel-DNA の .dna テンプレート。この名前（<AssemblyName>-AddIn.dna）で置くと、
+  ビルドが自動生成する代わりにこれを使う。
+  自動生成では NuGet 参照（Newtonsoft.Json）が <Reference> に載らず、パック済み XLL が
+  実行時に「アセンブリが見つかりません」で落ちた。配布は XLL 1 ファイルにしたいので、
+  依存は明示して Pack="true" で同梱する。
+-->
+<DnaLibrary Name="jp-pii-sanitizer" RuntimeVersion="v4.0" xmlns="http://schemas.excel-dna.net/addin/2020/07/dnalibrary">
+  <ExternalLibrary Path="JpPiiSanitizer.Excel.dll" ExplicitExports="false" LoadFromBytes="true" Pack="true" IncludePdb="false" />
+  <Reference Path="Newtonsoft.Json.dll" Pack="true" />
+</DnaLibrary>

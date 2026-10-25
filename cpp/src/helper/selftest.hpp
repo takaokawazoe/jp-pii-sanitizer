@@ -14,6 +14,7 @@
 #include "helper/session.hpp"
 #include "json.hpp"
 #include "mapping_io.hpp"
+#include "utf8.hpp"
 
 namespace helper::selftest {
 
@@ -245,6 +246,122 @@ inline int run(const std::string& data_root) {
     proto::Server srv(s);
     const bool quit = srv.serve(ms);
     check(!quit && ms.out.empty(), "上限超過のフレームは応答せず切断扱い");
+  }
+
+  // ---- 6) 列指定（セル全体トークン・対象外・値の opt-out・ID 種別） ----
+  std::printf("columns:\n");
+  {
+    const std::vector<Cell> t = {
+        {1, 1, "ID"},    {1, 2, "氏名"},        {1, 3, "住所"},                         {1, 4, "電話"},          {1, 5, "備考"},             {1, 6, "メモ"},                    {1, 7, "メール"},            {1, 8, "No"},
+        {2, 1, "A-001"}, {2, 2, "山田太郎"},    {2, 3, "〒100-0001 東京都千代田区千代田1-1"}, {2, 4, "内線1234"},      {2, 5, "山田太郎に連絡済み"}, {2, 6, "山田太郎に連絡済み"},        {2, 7, "taro@example.jp"},  {2, 8, "1"},
+        {3, 1, "A-002"}, {3, 2, "なし"},        {3, 3, "-"},                            {3, 4, "03-1234-5678"},  {3, 5, "A-001 の件"},       {3, 6, "佐藤花子を担当"},            {3, 7, "-"},                {3, 8, "2"},
+        {4, 1, "A-003"}, {4, 2, " 佐藤 花子"},  {4, 3, "大阪府大阪市北区1-1"},           {4, 4, "090-1111-2222"},                             {4, 6, "A-001 の件、A-0012 は別"},                               {4, 8, "3"},
+    };
+    const json ld2 = s.load(t);
+    check(ld2.value("ok", false), "load ok（列指定用の表）");
+    // 見出し行（1 行目）は r1=2 で外す。備考列は対象外。人名列の「なし」と住所列の「-」は外す。
+    // メール列の「-」は skip に載せない（記号だけの値はヘルパーが自分で外す）。No 列は弱い値（1 桁）。
+    const std::vector<ColumnRule> rules = {
+        {1, 2, 4, "ID", {}},
+        {2, 2, 4, "PERSON", {"なし"}},
+        {3, 2, 4, "LOCATION", {"-"}},
+        {4, 2, 4, "PHONE", {}},
+        {5, 2, 4, "NONE", {}},
+        {7, 2, 4, "EMAIL", {}},
+        {8, 2, 4, "ID", {}},
+    };
+    // 人名列の値は辞書（confirmed）にも載せる＝他の列への波及はこちらで起きる。
+    const std::vector<tokenizer::ConfirmedTerm> conf = {{"山田太郎", "PERSON"}, {"佐藤 花子", "PERSON"}};
+
+    const json pv2 = s.preview(conf, rules);
+    check(pv2.value("ok", false), "preview ok" + (pv2.value("ok", false) ? "" : "（" + pv2.value("error", "") + "）"));
+    const json pc = pv2.value("cells", json::array());
+    const json a23 = spans_at(pc, 2, 3);
+    const std::string addr23 = "〒100-0001 東京都千代田区千代田1-1";
+    check(a23.size() == 1 && a23[0][0] == 0 && a23[0][1] == utf8::char_len(addr23) &&
+              a23[0][2] == "address" && a23[0][3] == addr23,
+          "住所列: 郵便番号を含むセル全体が 1 つの住所スパン");
+    const json a21 = spans_at(pc, 2, 1);
+    check(a21.size() == 1 && a21[0][2] == "id" && a21[0][3] == "A-001", "ID 列: category=id・term=値");
+    const json a24 = spans_at(pc, 2, 4);
+    check(a24.size() == 1 && a24[0][2] == "phone", "電話列: 正規表現に合わない「内線1234」もセル全体が電話");
+    check(spans_at(pc, 3, 2).empty() && spans_at(pc, 3, 3).empty(), "skip の値（なし・-）は伏せない");
+    check(spans_at(pc, 2, 5).empty() && spans_at(pc, 3, 5).empty(), "対象外の列は氏名があってもスパンなし");
+    check(spans_at(pc, 1, 2).empty() && spans_at(pc, 1, 1).empty(), "見出し行は列指定の外");
+    const json a42 = spans_at(pc, 4, 2);
+    check(a42.size() == 1 && a42[0][0] == 1 && a42[0][3] == "佐藤 花子", "先頭の空白は残し、値だけがスパン");
+    check(spans_at(pc, 2, 6).size() == 1 && spans_at(pc, 3, 6).size() == 1, "メモ列（通常）には辞書経由で当たる");
+    const json a46 = spans_at(pc, 4, 6);
+    check(a46.size() == 1 && a46[0][0] == 0 && a46[0][3] == "A-001" && a46[0][2] == "id",
+          "ID 列の値は通常セルにも語として当たる（「A-001 の件」の先頭だけ。「A-0012」には当たらない）");
+    check(spans_at(pc, 3, 7).empty(), "メール列の「-」（記号だけ）は skip に無くてもスパンなし");
+    check(spans_at(pc, 2, 7).size() == 1 && spans_at(pc, 2, 7)[0][2] == "email", "メール列はセル全体がメール");
+    check(spans_at(pc, 2, 8).size() == 1 && spans_at(pc, 2, 8)[0][3] == "1", "弱い値（1 桁の No）も自分のセルでは伏せる");
+
+    const json sn3 = s.sanitize(conf, true, rules);
+    check(sn3.value("ok", false), "sanitize ok" + (sn3.value("ok", false) ? "" : "（" + sn3.value("error", "") + "）"));
+    check(sn3.value("leaks", json::array()).empty(), "安全ゲート通過");
+    const json sc = sn3.value("cells", json::array());
+    auto text_at = [&](int r, int c) { const json x = cell_at(sc, r, c); return x.is_null() ? std::string("<unchanged>") : x.value("text", ""); };
+    for (const auto& x : sc)
+      std::printf("      R%dC%d → %s\n", x.value("r", 0), x.value("c", 0), x.value("text", "").c_str());
+    check(text_at(2, 3) == "{{ADDRESS_1}}", "住所列のセルは丸ごと {{ADDRESS_1}}（郵便番号が別トークンにならない）");
+    // 番号は行→列の順に振られる（行 2: A-001→ID_1, No「1」→ID_2 …）
+    check(text_at(2, 1) == "{{ID_1}}" && text_at(3, 1) == "{{ID_3}}" && text_at(4, 1) == "{{ID_5}}", "ID 列は {{ID_n}}");
+    check(text_at(2, 8) == "{{ID_2}}" && text_at(3, 8) == "{{ID_4}}" && text_at(4, 8) == "{{ID_6}}", "弱い値の No 列も自分のセルは {{ID_n}}");
+    check(text_at(4, 6) == "{{ID_1}} の件、A-0012 は別", "メモ列の「A-001」は列と同じ {{ID_1}}、「A-0012」はそのまま");
+    check(text_at(2, 7) == "{{EMAIL_1}}" && text_at(3, 7) == "<unchanged>", "メール列: 値は {{EMAIL_1}}、「-」は変わらない");
+    check(text_at(2, 4) == "{{PHONE_1}}" && text_at(3, 4) == "{{PHONE_2}}", "電話列は内線も通常番号も {{PHONE_n}}");
+    check(text_at(4, 2) == " {{PERSON_2}}", "先頭の空白を残して置換");
+    check(text_at(2, 6) == "{{PERSON_1}}に連絡済み" && text_at(3, 6) == "{{PERSON_2}}を担当",
+          "メモ列は列の値と同じトークン（空白違いの「佐藤花子」も寄る）");
+    check(text_at(2, 5) == "<unchanged>" && text_at(3, 5) == "<unchanged>", "対象外の列は変わらない");
+    check(text_at(3, 2) == "<unchanged>" && text_at(3, 3) == "<unchanged>", "skip の値は変わらない");
+    const json exl = sn3.value("excludedLeaks", json::array());
+    bool exl_ok = false;
+    for (const auto& v : exl) if (v == "山田太郎") exl_ok = true;
+    check(exl_ok, "対象外の列に残る値は excludedLeaks に出る（山田太郎）");
+    check(sn3.value("mapping_count", 0) == 14, "対応表 14 件（ID×3・No×3・人名×2・住所×2・電話×3・メール×1。「-」は載らない）: " +
+                                                    std::to_string(sn3.value("mapping_count", 0)));
+
+    // 往復（空白違いの「佐藤花子」は確定語の表記「佐藤 花子」に寄って戻る）
+    const std::string jsonl2 = s.mapping_jsonl();
+    std::vector<Cell> masked2;
+    for (const auto& x : sc) masked2.push_back({x.value("r", 0), x.value("c", 0), x.value("text", "")});
+    const json rv2 = s.reverse_cells(masked2, jsonl2);
+    bool rt2 = rv2.value("ok", false) && rv2.value("leftovers", json::array()).empty();
+    for (const auto& orig : t) {
+      const json r = cell_at(rv2.value("cells", json::array()), orig.row, orig.col);
+      if (r.is_null()) continue;
+      const std::string expect = (orig.row == 3 && orig.col == 6) ? "佐藤 花子を担当" : orig.text;
+      if (r.value("text", "") != expect) {
+        rt2 = false;
+        std::printf("      R%dC%d: 期待「%s」 実際「%s」\n", orig.row, orig.col, expect.c_str(), r.value("text", "").c_str());
+      }
+    }
+    check(rt2, "列指定の結果も往復で原文に戻る");
+
+    const json sn3i = s.sanitize(conf, false, rules);
+    const json i21 = cell_at(sn3i.value("cells", json::array()), 2, 1);
+    check(sn3i.value("ok", false) && !i21.is_null() && i21.value("text", "") == "[識別子1]", "不可逆の ID は [識別子1]");
+
+    const json bad = s.preview(conf, {{1, 2, 4, "DATE", {}}});
+    check(!bad.value("ok", true), "未知の種別の列指定は ok:false");
+
+    // プロトコル経由（columns の解釈）
+    MemoryStream ms;
+    json pv_req = {{"id", 1}, {"cmd", "preview"}, {"confirmed", json::array()}};
+    pv_req["columns"] = json::array({{{"c", 1}, {"r1", 2}, {"kind", "ID"}},
+                                     {{"c", 2}, {"r1", 2}, {"r2", 4}, {"kind", "PERSON"}, {"skip", json::array({"なし"})}}});
+    ms.in += framed(pv_req.dump());
+    proto::Server srv(s);
+    srv.serve(ms);
+    const auto rs = unframe_all(ms.out);
+    check(rs.size() == 1 && rs[0].value("ok", false) &&
+              spans_at(rs[0].value("cells", json::array()), 4, 1).size() == 1 &&
+              spans_at(rs[0].value("cells", json::array()), 3, 2).empty() &&
+              spans_at(rs[0].value("cells", json::array()), 4, 2).size() == 1,
+          "protocol: columns（r2 省略は末尾まで・skip）が効く");
   }
 
   std::printf("%s (%d failure%s)\n", fails ? "SELFTEST FAIL" : "SELFTEST PASS", fails, fails == 1 ? "" : "s");

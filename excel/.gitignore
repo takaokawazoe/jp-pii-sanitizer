@@ -1,0 +1,5 @@
+bin/
+obj/
+*.user
+# 開発用の上書き設定（ヘルパー exe と models の場所）。配布物には含めない。
+jp-pii-sanitizer.config.json

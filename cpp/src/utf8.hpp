@@ -107,6 +107,29 @@ inline bool is_space_cp(const std::string& s, std::size_t at, std::size_t len) {
   return false;
 }
 
+/// `s[i]` から始まるコードポイントを復号する（正当な UTF-8 前提。不正なら U+FFFD）。
+/// len に消費したバイト数を返す（不正なら 1）。
+inline char32_t decode_cp(const std::string& s, std::size_t i, std::size_t* len = nullptr) {
+  const std::size_t n = valid_seq_len(s, i);
+  if (len) *len = n ? n : 1;
+  if (n == 0) return 0xFFFD;
+  const auto u = [&](std::size_t k) { return static_cast<char32_t>(static_cast<unsigned char>(s[i + k])); };
+  switch (n) {
+    case 1: return u(0);
+    case 2: return ((u(0) & 0x1F) << 6) | (u(1) & 0x3F);
+    case 3: return ((u(0) & 0x0F) << 12) | ((u(1) & 0x3F) << 6) | (u(2) & 0x3F);
+    default: return ((u(0) & 0x07) << 18) | ((u(1) & 0x3F) << 12) | ((u(2) & 0x3F) << 6) | (u(3) & 0x3F);
+  }
+}
+
+/// `s[i]` の直前のコードポイントの開始位置（継続バイトを飛ばして戻る）。i==0 なら 0。
+inline std::size_t prev_cp_start(const std::string& s, std::size_t i) {
+  if (i == 0) return 0;
+  std::size_t k = i - 1;
+  while (k > 0 && (static_cast<unsigned char>(s[k]) & 0xC0) == 0x80) --k;
+  return k;
+}
+
 /// 文字単位 [begin, end) を切り出す（Python の s[a:b] 相当）。
 inline std::string slice(const std::string& s, const std::vector<std::size_t>& off,
                         std::size_t begin, std::size_t end) {

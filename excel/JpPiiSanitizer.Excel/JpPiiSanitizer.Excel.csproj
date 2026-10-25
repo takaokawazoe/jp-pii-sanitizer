@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Excel アドイン（docs/excel-helper.md）。Excel-DNA で XLL にする。
+
+    なぜ .NET Framework 4.8 か: Windows 10/11 に同梱で、配布先の PC に
+    ランタイムを入れずに済む（.NET 8 は Desktop Runtime のインストール＝管理者権限が要る）。
+    XLL 側は COM の読み書き・パイプのクライアント・タスクペインだけで薄いので、
+    言語機能の古さは問題にならない。
+  -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>10</LangVersion>
+    <Nullable>disable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>JpPii.Excel</RootNamespace>
+    <AssemblyName>JpPiiSanitizer.Excel</AssemblyName>
+    <Platforms>AnyCPU</Platforms>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <!-- 配布先の Excel は 64 ビット（docs/excel-helper.md）。32 ビット XLL は作らない。 -->
+    <ExcelDnaCreate32BitAddIn>false</ExcelDnaCreate32BitAddIn>
+    <ExcelAddInName>jp-pii-sanitizer</ExcelAddInName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Excel のオブジェクトモデルは dynamic（遅延バインディング）で触る。PIA（Interop
+         アセンブリ）を参照しないので、Office のバージョン差とパッケージ依存を持ち込まない。 -->
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ExcelDna.AddIn" Version="1.8.0" />
+    <!-- JSON は Newtonsoft 1 本。System.Text.Json は net48 で依存 DLL が 6 本付き、
+         Excel 内のバインディングリダイレクトで嵌まる。 -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+</Project>
