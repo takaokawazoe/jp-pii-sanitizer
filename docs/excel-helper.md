@@ -3,9 +3,9 @@
 **Language:** English (below) · [日本語](#日本語)
 
 > **Status: helper and add-in implemented** (`jp-pii-helper`, CMake target `jp_pii_helper`;
-> add-in under [`excel/`](../excel/README.md)). This document is the contract between
-> the two, plus the reasoning behind its shape. The per-user installer and a Windows CI
-> build are still to come.
+> add-in under [`excel/`](../excel/README.md), per-user installer under `excel/installer/`).
+> This document is the contract between the two, plus the reasoning behind its shape.
+> A Windows CI build is still to come.
 
 ---
 

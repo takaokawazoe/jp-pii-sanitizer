@@ -21,7 +21,7 @@ The .NET Framework 4.8 reference assemblies come from NuGet automatically.
 ```powershell
 cd excel\JpPiiSanitizer.Excel
 dotnet build -c Release
-# → bin\Release\net48\jp-pii-sanitizer-AddIn64-packed.xll  (single file, dependencies packed)
+# → bin\Release\net48\publish\JpPiiSanitizer.Excel-AddIn64-packed.xll  (single file, dependencies packed)
 ```
 
 ### Run during development
@@ -78,18 +78,42 @@ change — that is the preview. On **サニタイズ** the header→kind assignm
 `%LOCALAPPDATA%\jp-pii-sanitizer\excel-column-rules.json` (header names and kinds only,
 never cell values) and proposed again for the next table with the same headers.
 
-### Layout for distribution (per-user, no admin)
+### Installer (per-user, no admin)
+
+`installer/build_installer.ps1` builds the helper and the XLL, stages them with the models
+and runs Inno Setup 6 (`winget install -e --id JRSoftware.InnoSetup`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File excel\installer\build_installer.ps1            # version from the latest git tag
+powershell -ExecutionPolicy Bypass -File excel\installer\build_installer.ps1 -Version 0.7.0
+# → excel\dist\jp-pii-sanitizer-excel-<version>-setup.exe  (≈520 MB, the model dominates)
+```
+
+The setup (`installer/jp-pii-sanitizer-excel.iss`) needs no admin rights and touches only
+the current user:
 
 ```
 %LOCALAPPDATA%\jp-pii-sanitizer\
- ├ jp-pii-sanitizer-AddIn64-packed.xll
+ ├ jp-pii-sanitizer.xll
  ├ jp-pii-helper.exe
  ├ onnxruntime.dll, onnxruntime_providers_shared.dll
- └ models\
+ ├ models\            (model_fp16.onnx, tokenizer.json, labels.json, patterns.json, sudachi\)
+ ├ README.txt
+ └ uninstall\
 ```
 
-The installer is a later step; it also registers the folder as a Trusted Location
-under `HKCU` so the unsigned XLL loads without a prompt.
+- registers the folder as a **Trusted Location** (`HKCU\…\Excel\Security\Trusted Locations\LocationN`)
+  so the unsigned XLL loads without a prompt;
+- registers the XLL for **automatic loading** at Excel start (`HKCU\…\Excel\Options\OPENn`, kept
+  contiguous), so the **PII** tab is simply there;
+- refuses 32-bit Office, asks to close Excel while the files are replaced;
+- the uninstaller removes both registrations and the files, but leaves
+  `excel-column-rules.json` (the user's column memory).
+
+The setup is unsigned, so a downloaded copy shows SmartScreen once (詳細情報 → 実行).
+For development, uninstall it first (or point `jp-pii-sanitizer.config.json` at the build
+tree) — otherwise Excel loads both the installed and the development XLL.
+Silent install for scripting: `setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`.
 
 ---
 
@@ -107,7 +131,7 @@ under `HKCU` so the unsigned XLL loads without a prompt.
 ```powershell
 cd excel\JpPiiSanitizer.Excel
 dotnet build -c Release
-# → bin\Release\net48\jp-pii-sanitizer-AddIn64-packed.xll（1 ファイル・依存を同梱）
+# → bin\Release\net48\publish\JpPiiSanitizer.Excel-AddIn64-packed.xll（1 ファイル・依存を同梱）
 ```
 
 ### 開発中の動かし方
@@ -160,15 +184,37 @@ Excel で `.xll` を開く（ファイル → 開く、またはオプション 
 見出し → 種別 の対応を `%LOCALAPPDATA%\jp-pii-sanitizer\excel-column-rules.json` に
 覚え（見出し名と種別だけ。セルの値は書かない）、次に同じ見出しの表を読んだときの提案に使う。
 
-### 配布時の配置（per-user・管理者不要）
+### インストーラ（per-user・管理者不要）
+
+`installer/build_installer.ps1` がヘルパーと XLL をビルドし、モデルと一緒に集めて
+Inno Setup 6（`winget install -e --id JRSoftware.InnoSetup`）で固める:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File excel\installer\build_installer.ps1            # 版は直近の git タグ
+powershell -ExecutionPolicy Bypass -File excel\installer\build_installer.ps1 -Version 0.7.0
+# → excel\dist\jp-pii-sanitizer-excel-<version>-setup.exe（約 520 MB。ほぼモデル）
+```
+
+setup（`installer/jp-pii-sanitizer-excel.iss`）は管理者権限を要らず、現在のユーザーにしか触らない:
 
 ```
 %LOCALAPPDATA%\jp-pii-sanitizer\
- ├ jp-pii-sanitizer-AddIn64-packed.xll
+ ├ jp-pii-sanitizer.xll
  ├ jp-pii-helper.exe
  ├ onnxruntime.dll, onnxruntime_providers_shared.dll
- └ models\
+ ├ models\            （model_fp16.onnx, tokenizer.json, labels.json, patterns.json, sudachi\）
+ ├ README.txt
+ └ uninstall\
 ```
 
-インストーラは次の工程。未署名の XLL をダイアログ無しで読ませるために、このフォルダを
-`HKCU` の「信頼できる場所」に登録するところまで含める。
+- このフォルダを **信頼できる場所** に登録する（`HKCU\…\Excel\Security\Trusted Locations\LocationN`）
+  ——未署名の XLL をダイアログ無しで読ませるため
+- XLL を Excel の **起動時読み込み** に登録する（`HKCU\…\Excel\Options\OPENn`。連番を保つ）
+  ——起動すれば **PII** タブがある状態になる
+- 32 ビット Office は拒否。ファイルを置き換える間は Excel を閉じてもらう
+- アンインストーラは両方の登録とファイルを外すが、`excel-column-rules.json`（列の記憶）は残す
+
+setup は未署名なので、ダウンロードした直後は SmartScreen が 1 回出る（詳細情報 → 実行）。
+開発中は先にアンインストールしておく（または `jp-pii-sanitizer.config.json` でビルドツリーを
+指す）。そうしないと Excel がインストール済みと開発中の XLL を両方読む。
+スクリプトから入れるなら `setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`。
