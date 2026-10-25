@@ -5,7 +5,8 @@
 > **Status: helper and add-in implemented** (`jp-pii-helper`, CMake target `jp_pii_helper`;
 > add-in under [`excel/`](../excel/README.md), per-user installer under `excel/installer/`).
 > This document is the contract between the two, plus the reasoning behind its shape.
-> A Windows CI build is still to come.
+> CI builds the helper, the XLL and the installer on Windows (`.github/workflows/ci.yml`, job
+> `windows`) and attaches the setup to a draft Release on `v*` tags.
 
 ---
 

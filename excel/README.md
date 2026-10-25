@@ -110,6 +110,10 @@ the current user:
 - the uninstaller removes both registrations and the files, but leaves
   `excel-column-rules.json` (the user's column memory).
 
+CI (`.github/workflows/ci.yml`, job `windows`) runs the same script on every push and keeps
+the setup as a workflow artifact for 14 days; on a `v*` tag it attaches the setup to a
+**draft** Release, which is published by hand after checking it.
+
 The setup is unsigned, so a downloaded copy shows SmartScreen once (詳細情報 → 実行).
 For development, uninstall it first (or point `jp-pii-sanitizer.config.json` at the build
 tree) — otherwise Excel loads both the installed and the development XLL.
@@ -213,6 +217,10 @@ setup（`installer/jp-pii-sanitizer-excel.iss`）は管理者権限を要らず�
   ——起動すれば **PII** タブがある状態になる
 - 32 ビット Office は拒否。ファイルを置き換える間は Excel を閉じてもらう
 - アンインストーラは両方の登録とファイルを外すが、`excel-column-rules.json`（列の記憶）は残す
+
+CI（`.github/workflows/ci.yml` の `windows` ジョブ）が push のたびに同じスクリプトを回し、
+setup をワークフローの成果物として 14 日残す。`v*` のタグでは Release の**ドラフト**に
+添付する——公開は中身を確かめてから手で行う。
 
 setup は未署名なので、ダウンロードした直後は SmartScreen が 1 回出る（詳細情報 → 実行）。
 開発中は先にアンインストールしておく（または `jp-pii-sanitizer.config.json` でビルドツリーを
