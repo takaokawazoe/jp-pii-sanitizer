@@ -7,13 +7,16 @@
 # 使い方: powershell -ExecutionPolicy Bypass -File excel/installer/build_installer.ps1
 #         ... -Version 0.6.1      バージョンを明示（既定は直近の git タグから v を外したもの）
 #         ... -SkipBuild          ビルド済みの exe/XLL をそのまま使う
+#         ... -Portable           setup.exe に加えて、インストーラ不要の zip
+#                                 （同じ中身＋手順書 README-portable.txt）も作る
 #
 # 前提: Visual Studio（C++）、.NET SDK、Inno Setup 6（winget install JRSoftware.InnoSetup）、
 #       cpp/models にモデル一式（package_win.ps1 と同じ）。
 # 注意: Excel が XLL を掴んでいると dotnet build が失敗する。テスト用 Excel は閉じてから。
 param(
   [string]$Version,
-  [switch]$SkipBuild
+  [switch]$SkipBuild,
+  [switch]$Portable
 )
 
 $ErrorActionPreference = 'Stop'
@@ -97,3 +100,19 @@ if ($LASTEXITCODE -ne 0) { throw 'ISCC に失敗しました' }
 $setup = Join-Path $dist "jp-pii-sanitizer-excel-$Version-setup.exe"
 $sizeMB = [Math]::Round((Get-Item $setup).Length / 1MB, 1)
 Write-Host "作成: $setup  ($sizeMB MB)"
+
+# --- ポータブル zip（インストーラ不要。同じ中身＋手順書） ---
+# zip の中は 1 つのフォルダ（jp-pii-sanitizer\）にまとめる。展開先にばらまかないため。
+if ($Portable) {
+  $zip = Join-Path $dist "jp-pii-sanitizer-excel-$Version-portable.zip"
+  $pstage = Join-Path $PSScriptRoot 'stage-portable\jp-pii-sanitizer'
+  if (Test-Path (Split-Path $pstage -Parent)) { Remove-Item (Split-Path $pstage -Parent) -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $pstage | Out-Null
+  Get-ChildItem $stage | Where-Object { $_.Name -ne 'README.txt' } | Copy-Item -Destination $pstage -Recurse
+  Copy-Item (Join-Path $PSScriptRoot 'README-portable.txt') (Join-Path $pstage 'README.txt')
+  if (Test-Path $zip) { Remove-Item $zip -Force }
+  Write-Host '== portable zip'
+  Compress-Archive -Path $pstage -DestinationPath $zip -CompressionLevel Optimal
+  $zipMB = [Math]::Round((Get-Item $zip).Length / 1MB, 1)
+  Write-Host "作成: $zip  ($zipMB MB)"
+}

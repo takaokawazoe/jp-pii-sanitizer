@@ -114,6 +114,16 @@ CI (`.github/workflows/ci.yml`, job `windows`) runs the same script on every pus
 the setup as a workflow artifact for 14 days; on a `v*` tag it attaches the setup to a
 **draft** Release, which is published by hand after checking it.
 
+### Without the installer (portable zip)
+
+`build_installer.ps1 -Portable` (CI always passes it) also produces
+`jp-pii-sanitizer-excel-<version>-portable.zip`: the same files plus a step-by-step
+`README.txt` (`installer/README-portable.txt`). The user does by hand what the setup does:
+unblock the zip before extracting (Mark of the Web, otherwise Excel refuses the XLL),
+extract to a writable folder, add that folder as a Trusted Location in the Trust Center,
+and pick the XLL under Options → Add-ins → Excel Add-ins → Browse. No registry editing,
+no admin, no executable to run.
+
 The setup is unsigned, so a downloaded copy shows SmartScreen once (詳細情報 → 実行).
 For development, uninstall it first (or point `jp-pii-sanitizer.config.json` at the build
 tree) — otherwise Excel loads both the installed and the development XLL.
@@ -221,6 +231,15 @@ setup（`installer/jp-pii-sanitizer-excel.iss`）は管理者権限を要らず�
 CI（`.github/workflows/ci.yml` の `windows` ジョブ）が push のたびに同じスクリプトを回し、
 setup をワークフローの成果物として 14 日残す。`v*` のタグでは Release の**ドラフト**に
 添付する——公開は中身を確かめてから手で行う。
+
+### インストーラを使わない（ポータブル zip）
+
+`build_installer.ps1 -Portable`（CI は常に付ける）は `jp-pii-sanitizer-excel-<version>-portable.zip`
+も作る。中身は同じファイルと、手順書の `README.txt`（`installer/README-portable.txt`）。
+setup がやることを利用者が手で行う: 展開前に zip のブロックを解除（Mark of the Web が
+付いたままだと Excel が XLL を読まない）、書き込める場所に展開、トラストセンターで
+そのフォルダを信頼できる場所に追加、オプション → アドイン → Excel アドイン → 参照 で
+XLL を選ぶ。レジストリ編集なし・管理者不要・実行する exe なし。
 
 setup は未署名なので、ダウンロードした直後は SmartScreen が 1 回出る（詳細情報 → 実行）。
 開発中は先にアンインストールしておく（または `jp-pii-sanitizer.config.json` でビルドツリーを

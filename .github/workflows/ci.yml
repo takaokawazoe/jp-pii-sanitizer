@@ -259,16 +259,19 @@ jobs:
         shell: pwsh
         run: |
           $v = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}' -replace '^v', '' } else { '0.0.${{ github.run_number }}' }
-          powershell -NoProfile -ExecutionPolicy Bypass -File excel/installer/build_installer.ps1 -Version $v -SkipBuild
+          powershell -NoProfile -ExecutionPolicy Bypass -File excel/installer/build_installer.ps1 -Version $v -SkipBuild -Portable
           Get-ChildItem excel/dist
 
-      - name: upload setup.exe
+      # setup.exe とポータブル zip（インストーラ不要・手順書入り）の両方
+      - name: upload setup.exe + portable zip
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: jp-pii-sanitizer-excel-setup
-          path: excel/dist/*.exe
+          name: jp-pii-sanitizer-excel
+          path: |
+            excel/dist/*.exe
+            excel/dist/*.zip
           retention-days: 14
-          compression-level: 0   # 中身はもう圧縮済み（lzma2）
+          compression-level: 0   # 中身はもう圧縮済み（lzma2 / deflate）
 
       - name: attach to Release (tag only, draft)
         if: github.ref_type == 'tag'
@@ -281,4 +284,4 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --draft --title $tag --notes "Excel add-in installer (per-user). See excel/README.md."
           }
-          gh release upload $tag (Get-ChildItem excel/dist/*.exe).FullName --clobber
+          gh release upload $tag (Get-ChildItem excel/dist/*.exe, excel/dist/*.zip).FullName --clobber
