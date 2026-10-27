@@ -5,8 +5,10 @@ name: ci
 #          tests, and measures detection quality with the eval harness.
 # windows: builds the Excel helper with MSVC, the Excel-DNA XLL and the per-user installer
 #          (excel/installer), runs the core tests + helper self-test on Windows, and uploads
-#          the setup.exe as an artifact. On a v* tag it is attached to a draft Release.
-# The WebView2 GUI target is not built in CI (needs Aspose + WebView2 SDK vendored).
+#          the excel\ folder (XLL, helper, setup.exe; no models) as an artifact.
+# The WebView2 GUI target is not built in CI (needs Aspose + WebView2 SDK vendored), so the
+# release zip (GUI + CLI + models + excel\) is built locally with cpp/tools/package_win.ps1
+# and attached to the Release by hand. CI does not touch Releases.
 
 on:
   push:
@@ -171,12 +173,12 @@ jobs:
 
   # Excel アドイン一式（docs/excel-helper.md・excel/README.md）。ヘルパーは MSVC でビルドし、
   # コアの等価性テストが Windows でも Python と一致することを確かめる。XLL と per-user
-  # インストーラは excel/installer/build_installer.ps1 で作り、setup.exe を成果物に載せる。
-  # タグ（v*）のときは Release（ドラフト）に添付する——公開は人が確認してから。
+  # インストーラは excel/installer/build_installer.ps1 で作り、excel\ の中身を成果物に載せる
+  # （models 抜きで 20 MB ほど）。配布 zip は GUI 込みで手元の package_win.ps1 が作る。
   windows:
     runs-on: windows-latest
     permissions:
-      contents: write   # タグのときに Release へ setup.exe を付けるためだけ
+      contents: read
     env:
       JPPII_REPO: ${{ github.repository }}
       JPPII_TAG: v0.1.0
@@ -255,33 +257,19 @@ jobs:
         run: dotnet build excel/JpPiiSanitizer.Excel -c Release -nologo -v q
 
       # 版: タグなら v0.7.0 → 0.7.0、それ以外は 0.0.<run_number>（Inno の VersionInfo は数字のみ）
-      - name: installer (Inno Setup)
+      # setup.exe は external 方式（中身を埋め込まない）なので、ここで作るのは数 MB の exe と
+      # XLL・ヘルパー・onnxruntime・README を集めた excel\ フォルダだけ。
+      - name: excel folder (XLL + helper + Inno Setup)
         shell: pwsh
         run: |
           $v = if ('${{ github.ref_type }}' -eq 'tag') { '${{ github.ref_name }}' -replace '^v', '' } else { '0.0.${{ github.run_number }}' }
-          powershell -NoProfile -ExecutionPolicy Bypass -File excel/installer/build_installer.ps1 -Version $v -SkipBuild -Portable
-          Get-ChildItem excel/dist
+          powershell -NoProfile -ExecutionPolicy Bypass -File excel/installer/build_installer.ps1 -Version $v -SkipBuild
+          Get-ChildItem excel/installer/stage
 
-      # setup.exe とポータブル zip（インストーラ不要・手順書入り）の両方
-      - name: upload setup.exe + portable zip
+      # 展開して配布 zip の jp-pii-sanitizer\excel\ に置けば、そのまま差し替え検証に使える
+      - name: upload excel folder
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: jp-pii-sanitizer-excel
-          path: |
-            excel/dist/*.exe
-            excel/dist/*.zip
+          path: excel/installer/stage/
           retention-days: 14
-          compression-level: 0   # 中身はもう圧縮済み（lzma2 / deflate）
-
-      - name: attach to Release (tag only, draft)
-        if: github.ref_type == 'tag'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $tag = '${{ github.ref_name }}'
-          gh release view $tag 2>$null | Out-Null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --draft --title $tag --notes "Excel add-in installer (per-user). See excel/README.md."
-          }
-          gh release upload $tag (Get-ChildItem excel/dist/*.exe, excel/dist/*.zip).FullName --clobber

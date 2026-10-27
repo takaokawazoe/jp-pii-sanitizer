@@ -1,9 +1,7 @@
 bin/
 obj/
 *.user
-# インストーラの作業場所と成果物（setup.exe は 500 MB 超。Release に添付する）
+# build_installer.ps1 の出力（配布 zip の excel\ の中身。zip は cpp/tools/package_win.ps1 が作る）
 installer/stage/
-installer/stage-portable/
-dist/
 # 開発用の上書き設定（ヘルパー exe と models の場所）。配布物には含めない。
 jp-pii-sanitizer.config.json

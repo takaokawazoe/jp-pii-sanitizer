@@ -51,7 +51,9 @@ There is also an **Excel add-in** ([`excel/`](excel/README.md)): the same core, 
 cell by cell from a task pane. It adds **column rules** (a column *is* an attribute, so you
 mark a column as 人名 / 住所 / 識別子 … and every cell in it becomes one token), writes the
 sanitized sheet to a new workbook, and can restore real names either in pasted text or
-directly in a sheet. Design and protocol: [docs/excel-helper.md](docs/excel-helper.md).
+directly in a sheet. It ships in the `excel\` folder of the release zip (with a small
+per-user installer); see `excel\README.txt` there. Design and protocol:
+[docs/excel-helper.md](docs/excel-helper.md).
 
 The confirmation UI highlights exactly what will be masked (the same matcher the
 sanitizer uses), so the preview and the result always agree.
@@ -185,7 +187,8 @@ GUI と CLI は**同じ**対応表フォーマットを読み書きします。�
 **Excel アドイン**（[`excel/`](excel/README.md)）もあります。同じコアをタスクペインから
 セル単位で動かすもので、**列指定**（表では列＝属性なので、列を 人名／住所／識別子… と
 決めるとその列のセルが丸ごと 1 トークンになる）、サニタイズ済みシートの別ブック出力、
-貼り付けた文章でもシート上でも実名に戻せる復元を備えます。設計とプロトコル:
+貼り付けた文章でもシート上でも実名に戻せる復元を備えます。配布 zip の `excel\` フォルダに
+入っています（小さな per-user インストーラ付き。入れ方はそこの `README.txt`）。設計とプロトコル:
 [docs/excel-helper.md](docs/excel-helper.md)。
 
 確定画面は、実際にマスクされる箇所（サニタイザと同じマッチャ）をハイライトするので、

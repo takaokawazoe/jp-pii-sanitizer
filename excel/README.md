@@ -78,29 +78,37 @@ change — that is the preview. On **サニタイズ** the header→kind assignm
 `%LOCALAPPDATA%\jp-pii-sanitizer\excel-column-rules.json` (header names and kinds only,
 never cell values) and proposed again for the next table with the same headers.
 
-### Installer (per-user, no admin)
+### Distribution: the `excel\` folder of the release zip
 
-`installer/build_installer.ps1` builds the helper and the XLL, stages them with the models
-and runs Inno Setup 6 (`winget install -e --id JRSoftware.InnoSetup`):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File excel\installer\build_installer.ps1            # version from the latest git tag
-powershell -ExecutionPolicy Bypass -File excel\installer\build_installer.ps1 -Version 0.7.0
-# → excel\dist\jp-pii-sanitizer-excel-<version>-setup.exe  (≈520 MB, the model dominates)
-```
-
-The setup (`installer/jp-pii-sanitizer-excel.iss`) needs no admin rights and touches only
-the current user:
+There is one release artifact, `jp-pii-sanitizer-<version>-win-x64.zip`, built by
+`cpp/tools/package_win.ps1`. The add-in lives in its `excel\` subfolder and shares the
+`models\` folder with the GUI and CLI, so the model (≈740 MB) is shipped once:
 
 ```
-%LOCALAPPDATA%\jp-pii-sanitizer\
- ├ jp-pii-sanitizer.xll
- ├ jp-pii-helper.exe
- ├ onnxruntime.dll, onnxruntime_providers_shared.dll
+jp-pii-sanitizer\
+ ├ jp-pii-sanitizer.exe, jp-pii-sanitizer-cli.exe, index.html, *.dll, README.txt
  ├ models\            (model_fp16.onnx, tokenizer.json, labels.json, patterns.json, sudachi\)
- ├ README.txt
- └ uninstall\
+ └ excel\
+    ├ jp-pii-sanitizer.xll
+    ├ jp-pii-helper.exe
+    ├ onnxruntime.dll, onnxruntime_providers_shared.dll
+    ├ jp-pii-sanitizer-excel-setup.exe   (a few MB, see below)
+    └ README.txt                         (both ways to install, usage, mapping-file warning)
 ```
+
+`installer/build_installer.ps1` builds the helper and the XLL and assembles that folder
+(`package_win.ps1` calls it with `-OutDir <stage>\excel`; on its own it writes to
+`installer/stage/`). It needs the .NET SDK and Inno Setup 6
+(`winget install -e --id JRSoftware.InnoSetup`). The XLL looks for `models\` next to
+itself, next to the helper, and one level up (`Paths.cs`), so the same files work both
+inside the zip and after installation.
+
+**Installer (per-user, no admin).** `jp-pii-sanitizer-excel-setup.exe`
+(`installer/jp-pii-sanitizer-excel.iss`) embeds nothing: every file is `external`, copied
+at run time from the folder the setup is in and from `..\models`. It therefore only works
+from inside the extracted zip (it checks and says so), and it is small enough to rebuild
+in seconds. It installs to `%LOCALAPPDATA%\jp-pii-sanitizer\` (flat: XLL, helper, DLLs,
+`models\`, `README.txt`, `uninstall\`) and touches only the current user:
 
 - registers the folder as a **Trusted Location** (`HKCU\…\Excel\Security\Trusted Locations\LocationN`)
   so the unsigned XLL loads without a prompt;
@@ -110,24 +118,22 @@ the current user:
 - the uninstaller removes both registrations and the files, but leaves
   `excel-column-rules.json` (the user's column memory).
 
-CI (`.github/workflows/ci.yml`, job `windows`) runs the same script on every push and keeps
-the setup as a workflow artifact for 14 days; on a `v*` tag it attaches the setup to a
-**draft** Release, which is published by hand after checking it.
-
-### Without the installer (portable zip)
-
-`build_installer.ps1 -Portable` (CI always passes it) also produces
-`jp-pii-sanitizer-excel-<version>-portable.zip`: the same files plus a step-by-step
-`README.txt` (`installer/README-portable.txt`). The user does by hand what the setup does:
-unblock the zip before extracting (Mark of the Web, otherwise Excel refuses the XLL),
-extract to a writable folder, add that folder as a Trusted Location in the Trust Center,
-and pick the XLL under Options → Add-ins → Excel Add-ins → Browse. No registry editing,
-no admin, no executable to run.
-
+Silent install for scripting: `jp-pii-sanitizer-excel-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`.
 The setup is unsigned, so a downloaded copy shows SmartScreen once (詳細情報 → 実行).
-For development, uninstall it first (or point `jp-pii-sanitizer.config.json` at the build
-tree) — otherwise Excel loads both the installed and the development XLL.
-Silent install for scripting: `setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`.
+
+**Without the installer.** Keep the extracted zip somewhere permanent, unblock the zip
+before extracting (Mark of the Web, otherwise Excel refuses the XLL), add the `excel\`
+folder as a Trusted Location in the Trust Center, and pick the XLL under Options →
+Add-ins → Excel Add-ins → Browse. No registry editing, no admin, no executable to run.
+`excel\README.txt` walks through both ways.
+
+CI (`.github/workflows/ci.yml`, job `windows`) runs `build_installer.ps1 -SkipBuild` on
+every push and keeps the `excel\` folder (without models, ≈20 MB) as a workflow artifact
+for 14 days. CI cannot build the GUI (Aspose), so the release zip is built locally with
+`package_win.ps1` and attached to the Release by hand.
+
+For development, uninstall the add-in first (or point `jp-pii-sanitizer.config.json` at
+the build tree) — otherwise Excel loads both the installed and the development XLL.
 
 ---
 
@@ -198,28 +204,35 @@ Excel で `.xll` を開く（ファイル → 開く、またはオプション 
 見出し → 種別 の対応を `%LOCALAPPDATA%\jp-pii-sanitizer\excel-column-rules.json` に
 覚え（見出し名と種別だけ。セルの値は書かない）、次に同じ見出しの表を読んだときの提案に使う。
 
-### インストーラ（per-user・管理者不要）
+### 配布: 配布 zip の `excel\` フォルダ
 
-`installer/build_installer.ps1` がヘルパーと XLL をビルドし、モデルと一緒に集めて
-Inno Setup 6（`winget install -e --id JRSoftware.InnoSetup`）で固める:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File excel\installer\build_installer.ps1            # 版は直近の git タグ
-powershell -ExecutionPolicy Bypass -File excel\installer\build_installer.ps1 -Version 0.7.0
-# → excel\dist\jp-pii-sanitizer-excel-<version>-setup.exe（約 520 MB。ほぼモデル）
-```
-
-setup（`installer/jp-pii-sanitizer-excel.iss`）は管理者権限を要らず、現在のユーザーにしか触らない:
+配布物は `cpp/tools/package_win.ps1` が作る `jp-pii-sanitizer-<version>-win-x64.zip` の 1 つだけ。
+アドインはその `excel\` サブフォルダに入り、`models\` は GUI/CLI と共有する。モデル（約 740 MB）を
+zip に 1 回しか入れないため:
 
 ```
-%LOCALAPPDATA%\jp-pii-sanitizer\
- ├ jp-pii-sanitizer.xll
- ├ jp-pii-helper.exe
- ├ onnxruntime.dll, onnxruntime_providers_shared.dll
+jp-pii-sanitizer\
+ ├ jp-pii-sanitizer.exe, jp-pii-sanitizer-cli.exe, index.html, *.dll, README.txt
  ├ models\            （model_fp16.onnx, tokenizer.json, labels.json, patterns.json, sudachi\）
- ├ README.txt
- └ uninstall\
+ └ excel\
+    ├ jp-pii-sanitizer.xll
+    ├ jp-pii-helper.exe
+    ├ onnxruntime.dll, onnxruntime_providers_shared.dll
+    ├ jp-pii-sanitizer-excel-setup.exe   （数 MB。下記）
+    └ README.txt                         （入れ方 2 通り・使い方・対応表の注意）
 ```
+
+`installer/build_installer.ps1` がヘルパーと XLL をビルドしてこのフォルダを組む
+（`package_win.ps1` は `-OutDir <stage>\excel` で呼ぶ。単体で動かすと `installer/stage/` に出る）。
+.NET SDK と Inno Setup 6（`winget install -e --id JRSoftware.InnoSetup`）が要る。
+XLL は `models\` を 自分の隣 → ヘルパーの隣 → 1 つ上 の順に探す（`Paths.cs`）ので、
+zip の中でもインストール後でも同じファイルで動く。
+
+**インストーラ（per-user・管理者不要）。** `jp-pii-sanitizer-excel-setup.exe`
+（`installer/jp-pii-sanitizer-excel.iss`）は何も埋め込まない。全ファイルが `external` で、
+実行時に setup のあるフォルダと `..\models` からコピーする。だから展開した zip の中でしか動かず
+（確かめて、そう言って止まる）、数秒で作り直せる。`%LOCALAPPDATA%\jp-pii-sanitizer\` に
+平らに置き（XLL・ヘルパー・DLL・`models\`・`README.txt`・`uninstall\`）、現在のユーザーにしか触らない:
 
 - このフォルダを **信頼できる場所** に登録する（`HKCU\…\Excel\Security\Trusted Locations\LocationN`）
   ——未署名の XLL をダイアログ無しで読ませるため
@@ -228,20 +241,17 @@ setup（`installer/jp-pii-sanitizer-excel.iss`）は管理者権限を要らず�
 - 32 ビット Office は拒否。ファイルを置き換える間は Excel を閉じてもらう
 - アンインストーラは両方の登録とファイルを外すが、`excel-column-rules.json`（列の記憶）は残す
 
-CI（`.github/workflows/ci.yml` の `windows` ジョブ）が push のたびに同じスクリプトを回し、
-setup をワークフローの成果物として 14 日残す。`v*` のタグでは Release の**ドラフト**に
-添付する——公開は中身を確かめてから手で行う。
-
-### インストーラを使わない（ポータブル zip）
-
-`build_installer.ps1 -Portable`（CI は常に付ける）は `jp-pii-sanitizer-excel-<version>-portable.zip`
-も作る。中身は同じファイルと、手順書の `README.txt`（`installer/README-portable.txt`）。
-setup がやることを利用者が手で行う: 展開前に zip のブロックを解除（Mark of the Web が
-付いたままだと Excel が XLL を読まない）、書き込める場所に展開、トラストセンターで
-そのフォルダを信頼できる場所に追加、オプション → アドイン → Excel アドイン → 参照 で
-XLL を選ぶ。レジストリ編集なし・管理者不要・実行する exe なし。
-
+スクリプトから入れるなら `jp-pii-sanitizer-excel-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`。
 setup は未署名なので、ダウンロードした直後は SmartScreen が 1 回出る（詳細情報 → 実行）。
+
+**インストーラを使わない。** 展開した zip を消さない場所に置き、展開前に zip のブロックを解除
+（Mark of the Web が付いたままだと Excel が XLL を読まない）、トラストセンターで `excel\` を
+信頼できる場所に追加、オプション → アドイン → Excel アドイン → 参照 で XLL を選ぶ。
+レジストリ編集なし・管理者不要・実行する exe なし。`excel\README.txt` に両方の手順がある。
+
+CI（`.github/workflows/ci.yml` の `windows` ジョブ）は push のたびに `build_installer.ps1 -SkipBuild`
+を回し、`excel\` フォルダ（models 抜き・約 20 MB）をワークフローの成果物として 14 日残す。
+GUI は CI で作れない（Aspose）ので、配布 zip は手元で `package_win.ps1` で作り、Release に手で添付する。
+
 開発中は先にアンインストールしておく（または `jp-pii-sanitizer.config.json` でビルドツリーを
 指す）。そうしないと Excel がインストール済みと開発中の XLL を両方読む。
-スクリプトから入れるなら `setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART`。

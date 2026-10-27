@@ -6,7 +6,8 @@
 > add-in under [`excel/`](../excel/README.md), per-user installer under `excel/installer/`).
 > This document is the contract between the two, plus the reasoning behind its shape.
 > CI builds the helper, the XLL and the installer on Windows (`.github/workflows/ci.yml`, job
-> `windows`) and attaches the setup to a draft Release on `v*` tags.
+> `windows`). The add-in ships in the `excel\` folder of the single release zip built by
+> `cpp/tools/package_win.ps1`, sharing `models\` with the GUI and CLI.
 
 ---
 

@@ -1,16 +1,29 @@
-﻿# ポータブル配布ZIPを生成する。
+﻿# 配布 ZIP（Release に添付する 1 つの zip）を生成する。
 #   展開して jp-pii-sanitizer.exe を叩けば動く自己完結フォルダ（管理者権限不要）。
 #   対象: Windows 11 以降（WebView2 ランタイム標準搭載に依存）。未署名。
 #
+#   jp-pii-sanitizer\
+#     jp-pii-sanitizer.exe  jp-pii-sanitizer-cli.exe  index.html  各 DLL  README.txt
+#     models\                     検知モデル・辞書（GUI/CLI/Excel で 1 つを共有）
+#     excel\                      Excel アドイン一式（excel/installer/build_installer.ps1 の出力）
+#       jp-pii-sanitizer.xll  jp-pii-helper.exe  onnxruntime*.dll  README.txt
+#       jp-pii-sanitizer-excel-setup.exe   数 MB。隣のファイルと ..\models をコピーする
+#
 # 前提: cmake --build build --target jp_pii_sanitizer jp_pii_sanitizer_cli が済んでいること
 #       （build/ に GUI/CLI の exe・各DLL・index.html が揃う）と、models/ にモデル一式があること。
+#       Excel 部分はこのスクリプトがビルドする（.NET SDK と Inno Setup 6 が要る）。
 # 使い方: powershell -ExecutionPolicy Bypass -File cpp/tools/package_win.ps1
-#         powershell -ExecutionPolicy Bypass -File cpp/tools/package_win.ps1 -Version v0.4.1
+#         ... -Version v0.7.0   版を明示（既定は直近のタグ。タグが無い環境では "dev"）
+#         ... -SkipBuild        ヘルパー exe と XLL をビルドし直さない（GUI/CLI は元から前提）
+#         ... -NoExcel          excel\ を入れない（.NET SDK や Inno Setup が無い環境向け）
 #
 # ZIP 名にバージョンを入れる。入れないと、利用者の手元に複数の版が落ちたときに
 # どれがどれか分からなくなる（ダウンロードフォルダで名前が衝突して "(1)" が付くだけ）。
-# 既定は直近のタグ。タグが無い環境では "dev" になる。
-param([string]$Version)
+param(
+  [string]$Version,
+  [switch]$SkipBuild,
+  [switch]$NoExcel
+)
 
 $ErrorActionPreference = 'Stop'
 $cpp   = Split-Path $PSScriptRoot -Parent           # cpp/
@@ -75,6 +88,11 @@ PIIサニタイザ（ポータブル版）
     jp-pii-sanitizer-cli.exe restore --mapping mapping.jsonl -i ai_reply.txt -o final.txt
   詳細は jp-pii-sanitizer-cli.exe --help、および README のCLI節を参照。
 
+■ Excel アドイン
+  excel\ フォルダに Excel アドイン一式が入っています。入れ方と使い方は excel\README.txt を
+  見てください（excel\jp-pii-sanitizer-excel-setup.exe を実行するのが簡単です）。
+  検知モデルはこの models\ を GUI/CLI と共有しています。
+
 ■ 対応表のパスフレーズ保護（任意・既定はオフ）
   対応表は実名とトークンの対応そのものなので、持ち出しや紛失に備えて
   パスフレーズで保護できます。GUI は結果画面の「パスフレーズで保護する」、
@@ -97,6 +115,16 @@ PIIサニタイザ（ポータブル版）
   既定は全マスク（opt-out）ですが、社内AI等へ送信する前に必ず内容をご確認ください。
 "@
 [System.IO.File]::WriteAllText((Join-Path $stage 'README.txt'), $readme, (New-Object System.Text.UTF8Encoding($false)))
+
+# --- Excel アドイン（excel\）。models は入れず、zip の models\ を 1 つ上から使う ---
+if (-not $NoExcel) {
+  $excelVer = $Version -replace '^v', ''
+  if ($excelVer -notmatch '^\d+(\.\d+){0,3}$') { $excelVer = '0.0.0' }   # "dev" など
+  $buildExcel = Join-Path (Split-Path $cpp -Parent) 'excel\installer\build_installer.ps1'
+  Write-Host "== excel\ (build_installer.ps1 $excelVer)"
+  & $buildExcel -Version $excelVer -OutDir (Join-Path $stage 'excel') -SkipBuild:$SkipBuild
+  if (-not (Test-Path (Join-Path $stage 'excel\jp-pii-sanitizer-excel-setup.exe'))) { throw 'excel\ の作成に失敗しました' }
+}
 
 # --- 圧縮 ---
 if (Test-Path $zip) { Remove-Item $zip -Force }

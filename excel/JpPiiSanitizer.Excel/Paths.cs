@@ -1,7 +1,9 @@
 // ヘルパー exe と models ディレクトリの場所。
 //
-// 配布時は XLL の隣に jp-pii-helper.exe と models\ が並ぶ（per-user インストーラの
-// レイアウト）。開発中は XLL の隣に jp-pii-sanitizer.config.json を置いて上書きする:
+// 配布時のレイアウトは 2 通りある。どちらも XLL の隣に jp-pii-helper.exe がある:
+//   - インストール後（%LOCALAPPDATA%\jp-pii-sanitizer\）: models\ も XLL の隣
+//   - 配布 zip の中（jp-pii-sanitizer\excel\）: models\ は 1 つ上（GUI/CLI と共有）
+// 開発中は XLL の隣に jp-pii-sanitizer.config.json を置いて上書きする:
 //   {"helper": "C:\\tools\\jp-pii-sanitizer\\cpp\\build\\jp-pii-helper.exe",
 //    "data":   "C:\\tools\\jp-pii-sanitizer\\cpp\\models"}
 // 環境変数にしなかったのは、Excel のプロセスに届けるにはログオンし直しが要るため。
@@ -54,8 +56,11 @@ namespace JpPii.Excel
             {
                 var v = (string)Config["data"];
                 if (!string.IsNullOrWhiteSpace(v)) return v;
-                foreach (var dir in new[] { XllDir, Path.GetDirectoryName(HelperExe) ?? XllDir })
+                // 隣 → ヘルパーの隣 → 1 つ上（配布 zip の excel\ から GUI と共有する models\）
+                var candidates = new[] { XllDir, Path.GetDirectoryName(HelperExe) ?? XllDir, Path.GetDirectoryName(XllDir) };
+                foreach (var dir in candidates)
                 {
+                    if (string.IsNullOrEmpty(dir)) continue;
                     var models = Path.Combine(dir, "models");
                     if (File.Exists(Path.Combine(models, "patterns.json"))) return models;
                 }

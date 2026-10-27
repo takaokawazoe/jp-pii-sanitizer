@@ -7,18 +7,20 @@
 ;   - アンインストールで両方の登録を外す。利用者の設定（excel-column-rules.json）は残す
 ;   - 未署名。ダウンロードした setup.exe には SmartScreen が出る（README.txt に案内）
 ;
-; ビルド: excel/installer/build_installer.ps1 が同梱物を stage に集めてから
-;   ISCC /DAppVersion=0.6.1 /DStageDir=... /DOutputDir=... jp-pii-sanitizer-excel.iss
-; で呼ぶ。手で ISCC を叩くなら 3 つの define を渡すこと。
+; setup.exe は配布 zip の excel\ フォルダに入れて配る。ファイルは埋め込まず（external）、
+; 実行時に自分の隣（XLL・ヘルパー・onnxruntime・README）と 1 つ上の models\（GUI/CLI と
+; 共有）からコピーする。だから setup.exe は数 MB で、単体では動かない——展開した zip の
+; excel\ の中で実行する前提（InitializeSetup で確かめる）。
+;
+; ビルド: excel/installer/build_installer.ps1 が
+;   ISCC /DAppVersion=0.7.0 /DOutputDir=<stage> jp-pii-sanitizer-excel.iss
+; で呼ぶ。版は zip 名と揃える（アンインストール一覧の表示に使うだけ）。
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
-#ifndef StageDir
-  #define StageDir "stage"
-#endif
 #ifndef OutputDir
-  #define OutputDir "..\dist"
+  #define OutputDir "stage"
 #endif
 
 #define AppName "PII サニタイザ Excel アドイン"
@@ -46,11 +48,11 @@ CloseApplications=yes
 CloseApplicationsFilter=*.xll,*.exe,*.dll
 RestartApplications=no
 OutputDir={#OutputDir}
-OutputBaseFilename=jp-pii-sanitizer-excel-{#AppVersion}-setup
-; モデル（fp16 ONNX 530 MB）は圧縮が効きにくい。lzma2/max でも時間ばかり掛かるので normal
-Compression=lzma2/normal
-SolidCompression=yes
-LZMAUseSeparateProcess=yes
+; 版は zip 名に付くので setup.exe 名には入れない（excel\ の中で名前が固定の方が案内しやすい）
+OutputBaseFilename=jp-pii-sanitizer-excel-setup
+; ファイルは全部 external なので、setup.exe に入るのはセットアップ本体だけ
+Compression=lzma2
+SolidCompression=no
 UninstallDisplayName={#AppName}
 UninstallFilesDir={app}\uninstall
 WizardStyle=modern
@@ -65,16 +67,20 @@ japanese.ExcelNotFound=この PC に Excel（Microsoft 365 / Office 2016 以降�
 english.ExcelNotFound=Excel (Microsoft 365 / Office 2016 or later) was not found on this PC.%nThe add-in needs Excel, but you can continue the installation. Continue?
 japanese.Excel32=この PC の Office は 32 ビット版です。このアドインは 64 ビット版の Excel 専用です。%nインストールを中止します。
 english.Excel32=The Office installed on this PC is 32-bit. This add-in requires 64-bit Excel.%nSetup will now exit.
+japanese.SourceMissing=インストールに必要なファイルが見つかりません:%n%1%n%nこの setup.exe は単体では動きません。配布 zip を展開し、その中の excel フォルダから実行してください（1 つ上の models フォルダも使います）。
+english.SourceMissing=A file required for installation was not found:%n%1%n%nThis setup.exe does not work on its own. Extract the distribution zip and run it from the excel folder inside (it also uses the models folder one level up).
 japanese.Done=インストールが完了しました。次に Excel を起動すると、リボンに「PII」タブが現れます。%n%n対応表（実名を含むファイル）は AI に渡さないでください。詳しくはインストール先の README.txt を参照してください。
 english.Done=Installation is complete. The next time Excel starts, a "PII" tab appears on the ribbon.%n%nNever hand the mapping file (it contains the real names) to an AI. See README.txt in the installation folder.
 
 [Files]
-Source: "{#StageDir}\{#XllName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#StageDir}\jp-pii-helper.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#StageDir}\onnxruntime.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#StageDir}\onnxruntime_providers_shared.dll"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#StageDir}\README.txt"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#StageDir}\models\*"; DestDir: "{app}\models"; Flags: ignoreversion recursesubdirs createallsubdirs
+; external: setup.exe に埋め込まず、実行時に {src}（setup.exe のあるフォルダ）から読む
+Source: "{src}\{#XllName}"; DestDir: "{app}"; Flags: external ignoreversion
+Source: "{src}\jp-pii-helper.exe"; DestDir: "{app}"; Flags: external ignoreversion
+Source: "{src}\onnxruntime.dll"; DestDir: "{app}"; Flags: external ignoreversion
+Source: "{src}\onnxruntime_providers_shared.dll"; DestDir: "{app}"; Flags: external ignoreversion
+Source: "{src}\README.txt"; DestDir: "{app}"; Flags: external ignoreversion
+; models は zip の中で GUI/CLI と共有している（excel\ の 1 つ上）
+Source: "{src}\..\models\*"; DestDir: "{app}\models"; Flags: external ignoreversion recursesubdirs createallsubdirs
 
 [Messages]
 japanese.FinishedLabel=%1 のインストールが完了しました。
@@ -243,11 +249,46 @@ end;
 
 // ---- 事前検査 ----
 
+// external のコピー元が揃っているか。無いまま進むとコピーの途中で止まって分かりにくい
+function SourceMissing: String;
+var
+  i: Integer;
+  names: TArrayOfString;
+  p: String;
+begin
+  Result := '';
+  SetArrayLength(names, 6);
+  names[0] := '{src}\{#XllName}';
+  names[1] := '{src}\jp-pii-helper.exe';
+  names[2] := '{src}\onnxruntime.dll';
+  names[3] := '{src}\onnxruntime_providers_shared.dll';
+  names[4] := '{src}\README.txt';
+  names[5] := '{src}\..\models\model_fp16.onnx';
+  for i := 0 to GetArrayLength(names) - 1 do
+  begin
+    p := ExpandConstant(names[i]);
+    if not FileExists(p) then
+    begin
+      Result := p;
+      Exit;
+    end;
+  end;
+  if not DirExists(ExpandConstant('{src}\..\models\sudachi')) then
+    Result := ExpandConstant('{src}\..\models\sudachi');
+end;
+
 function InitializeSetup: Boolean;
 var
-  platform: String;
+  platform, missing: String;
 begin
   Result := True;
+  missing := SourceMissing;
+  if missing <> '' then
+  begin
+    MsgBox(FmtMessage(CustomMessage('SourceMissing'), [missing]), mbError, MB_OK);
+    Result := False;
+    Exit;
+  end;
   // 32 ビット Office には 64 ビット XLL は載らない
   if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\Office\ClickToRun\Configuration', 'Platform', platform) then
     if CompareText(platform, 'x86') = 0 then
